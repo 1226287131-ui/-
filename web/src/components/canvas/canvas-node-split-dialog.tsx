@@ -162,7 +162,9 @@ export function CanvasNodeSplitDialog({ dataUrl, open, onClose, onConfirm }: { d
                         >
                             <div className="relative" style={viewport.contentStyle}>
                                 <div ref={previewRef} className="absolute isolate overflow-hidden rounded-lg bg-black [backface-visibility:hidden] [contain:layout_paint] [transform:translateZ(0)]" style={viewport.stageStyle}>
-                                    <img src={dataUrl} alt="" className="absolute inset-0 block h-full w-full object-contain [backface-visibility:hidden]" draggable={false} />
+                                    <div className="absolute left-0 top-0 [backface-visibility:hidden]" style={viewport.mediaStyle}>
+                                        <img src={dataUrl} alt="" className="block h-full w-full object-contain" draggable={false} />
+                                    </div>
                                     <SplitGrid horizontalLines={horizontalLines} verticalLines={verticalLines} active={active} onPointerDown={startDrag} />
                                 </div>
                             </div>

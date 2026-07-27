@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 type ImageSize = { width: number; height: number };
 
@@ -11,6 +11,7 @@ export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
     const viewportNodeRef = useRef<HTMLDivElement>(null);
     const stageRef = useRef<HTMLDivElement>(null);
     const panRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+    const zoomAnchorRef = useRef<{ zoom: number; ratioX: number; ratioY: number; viewportX: number; viewportY: number } | null>(null);
     const [viewportElement, setViewportElement] = useState<HTMLDivElement | null>(null);
     const [viewportSize, setViewportSize] = useState<ImageSize>({ width: 0, height: 0 });
     const [zoom, setZoom] = useState(minZoom);
@@ -23,7 +24,9 @@ export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
     }, []);
 
     useEffect(() => {
-        if (open) setZoom(minZoom);
+        if (!open) return;
+        zoomAnchorRef.current = null;
+        setZoom(minZoom);
     }, [open, image?.width, image?.height]);
 
     useEffect(() => {
@@ -85,6 +88,19 @@ export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
         top: Math.max(0, Math.round((contentSize.height - stageSize.height) / 2)),
     };
 
+    useLayoutEffect(() => {
+        const viewport = viewportNodeRef.current;
+        const anchor = zoomAnchorRef.current;
+        if (!viewport || !anchor || Math.abs(anchor.zoom - zoom) > 0.001) return;
+        const nextWidth = baseSize.width * zoom;
+        const nextHeight = baseSize.height * zoom;
+        const nextLeft = Math.max(0, (Math.max(viewport.clientWidth, nextWidth) - nextWidth) / 2);
+        const nextTop = Math.max(0, (Math.max(viewport.clientHeight, nextHeight) - nextHeight) / 2);
+        viewport.scrollLeft = nextLeft + anchor.ratioX * nextWidth - anchor.viewportX;
+        viewport.scrollTop = nextTop + anchor.ratioY * nextHeight - anchor.viewportY;
+        zoomAnchorRef.current = null;
+    }, [baseSize.height, baseSize.width, zoom]);
+
     const setZoomAround = useCallback(
         (nextZoom: number, clientX?: number, clientY?: number) => {
             const viewport = viewportNodeRef.current;
@@ -103,17 +119,8 @@ export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
             const viewportX = pointerX - viewportRect.left;
             const viewportY = pointerY - viewportRect.top;
 
+            zoomAnchorRef.current = { zoom: boundedZoom, ratioX, ratioY, viewportX, viewportY };
             setZoom(boundedZoom);
-            requestAnimationFrame(() => {
-                const nextWidth = baseSize.width * boundedZoom;
-                const nextHeight = baseSize.height * boundedZoom;
-                const nextContentWidth = Math.max(viewport.clientWidth, nextWidth);
-                const nextContentHeight = Math.max(viewport.clientHeight, nextHeight);
-                const nextLeft = Math.max(0, (nextContentWidth - nextWidth) / 2);
-                const nextTop = Math.max(0, (nextContentHeight - nextHeight) / 2);
-                viewport.scrollLeft = nextLeft + ratioX * nextWidth - viewportX;
-                viewport.scrollTop = nextTop + ratioY * nextHeight - viewportY;
-            });
         },
         [baseSize.height, baseSize.width, zoom],
     );
@@ -177,6 +184,7 @@ export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
         },
         canZoomIn: zoom < maxZoom,
         canZoomOut: zoom > minZoom,
+        imageScale: image ? stageSize.width / image.width : 0,
         zoomIn: () => setZoomAround(zoom * zoomStep),
         zoomOut: () => setZoomAround(zoom / zoomStep),
         resetZoom: () => setZoomAround(minZoom),
@@ -186,6 +194,12 @@ export function useImageEditorViewport(image: ImageSize | null, open: boolean) {
             top: stageOffset.top,
             width: stageSize.width,
             height: stageSize.height,
+        } satisfies CSSProperties,
+        mediaStyle: {
+            width: baseSize.width,
+            height: baseSize.height,
+            transform: `translateZ(0) scale(${zoom})`,
+            transformOrigin: "top left",
         } satisfies CSSProperties,
     };
 }

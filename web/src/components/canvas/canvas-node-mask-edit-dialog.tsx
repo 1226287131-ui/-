@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { Button, Input, Modal, Slider, Tooltip } from "antd";
 import { Brush, Eraser, Redo2, RotateCcw, Undo2, WandSparkles, X, ZoomIn, ZoomOut } from "lucide-react";
 
@@ -75,11 +76,10 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     };
 
     const updateBrushPreview = (event: ReactPointerEvent<HTMLCanvasElement>, size = brushSize, adjusting = false) => {
-        const rect = event.currentTarget.getBoundingClientRect();
         setBrushPreview({
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top,
-            size: Math.max(4, (size / event.currentTarget.width) * rect.width),
+            x: event.clientX,
+            y: event.clientY,
+            size,
             adjusting,
         });
     };
@@ -89,14 +89,13 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
             event.preventDefault();
             event.stopPropagation();
             event.currentTarget.setPointerCapture(event.pointerId);
-            const rect = event.currentTarget.getBoundingClientRect();
             brushAdjustRef.current = {
                 active: true,
                 pointerId: event.pointerId,
                 startX: event.clientX,
                 startSize: brushSize,
-                previewX: event.clientX - rect.left,
-                previewY: event.clientY - rect.top,
+                previewX: event.clientX,
+                previewY: event.clientY,
             };
             updateBrushPreview(event, brushSize, true);
             return;
@@ -120,7 +119,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
             setBrushPreview({
                 x: brushAdjust.previewX,
                 y: brushAdjust.previewY,
-                size: Math.max(4, (nextSize / event.currentTarget.width) * event.currentTarget.getBoundingClientRect().width),
+                size: nextSize,
                 adjusting: true,
             });
             return;
@@ -218,38 +217,43 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                 >
                     <div className="relative" style={viewport.contentStyle}>
                         <div ref={viewport.stageRef} className="absolute isolate overflow-hidden rounded-lg bg-transparent select-none [backface-visibility:hidden] [contain:layout_paint] [transform:translateZ(0)]" style={viewport.stageStyle}>
-                            <img src={dataUrl} alt="" className="absolute inset-0 block h-full w-full bg-transparent object-contain [backface-visibility:hidden]" draggable={false} />
                             {image ? (
                                 <>
                                     <canvas ref={maskCanvasRef} width={image.width} height={image.height} className="hidden" />
-                                    <canvas
-                                        ref={previewCanvasRef}
-                                        width={image.width}
-                                        height={image.height}
-                                        className="absolute inset-0 h-full w-full cursor-none touch-none [backface-visibility:hidden]"
-                                        onPointerDown={startDraw}
-                                        onPointerMove={moveDraw}
-                                        onPointerUp={stopDraw}
-                                        onPointerCancel={stopDraw}
-                                        onPointerEnter={(event) => updateBrushPreview(event)}
-                                        onPointerLeave={() => {
-                                            if (!drawingRef.current.active && !brushAdjustRef.current?.active) setBrushPreview(null);
-                                        }}
-                                        onContextMenu={(event) => event.preventDefault()}
-                                    />
-                                    {brushPreview ? (
-                                        <div
-                                            className={`pointer-events-none absolute z-10 rounded-full border-2 ${brushPreview.adjusting ? "border-[#fbbf24] bg-black/10" : "border-white/90 bg-black/5"} shadow-[0_0_0_1px_rgba(0,0,0,.8)]`}
-                                            style={{ left: brushPreview.x, top: brushPreview.y, width: brushPreview.size, height: brushPreview.size, transform: "translate(-50%, -50%)" }}
-                                        >
-                                            {brushPreview.adjusting ? <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-black/75 px-1.5 py-0.5 text-xs font-semibold text-white">{brushSize}px</span> : null}
-                                        </div>
-                                    ) : null}
+                                    <div className="absolute left-0 top-0 [backface-visibility:hidden]" style={viewport.mediaStyle}>
+                                        <img src={dataUrl} alt="" className="absolute inset-0 block h-full w-full bg-transparent object-contain" draggable={false} />
+                                        <canvas
+                                            ref={previewCanvasRef}
+                                            width={image.width}
+                                            height={image.height}
+                                            className="absolute inset-0 h-full w-full cursor-none touch-none"
+                                            onPointerDown={startDraw}
+                                            onPointerMove={moveDraw}
+                                            onPointerUp={stopDraw}
+                                            onPointerCancel={stopDraw}
+                                            onPointerEnter={(event) => updateBrushPreview(event)}
+                                            onPointerLeave={() => {
+                                                if (!drawingRef.current.active && !brushAdjustRef.current?.active) setBrushPreview(null);
+                                            }}
+                                            onContextMenu={(event) => event.preventDefault()}
+                                        />
+                                    </div>
                                 </>
                             ) : null}
                         </div>
                     </div>
                 </div>
+                {brushPreview
+                    ? createPortal(
+                          <div
+                              className={`pointer-events-none fixed z-[1100] rounded-full border-2 ${brushPreview.adjusting ? "border-[#fbbf24] bg-black/10" : "border-white/90 bg-black/5"} shadow-[0_0_0_1px_rgba(0,0,0,.8)]`}
+                              style={{ left: brushPreview.x, top: brushPreview.y, width: Math.max(4, brushPreview.size * viewport.imageScale), aspectRatio: 1, transform: "translate(-50%, -50%)" }}
+                          >
+                              {brushPreview.adjusting ? <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-black/75 px-1.5 py-0.5 text-xs font-semibold text-white">{brushSize}px</span> : null}
+                          </div>,
+                          document.body,
+                      )
+                    : null}
 
                 <div className="flex min-h-[360px] flex-col gap-5">
                     <div>
