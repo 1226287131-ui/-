@@ -4,6 +4,7 @@ import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
 import { imageAspectOptions, imageQualityOptions } from "@/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/components/video-settings-panel";
+import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -183,42 +184,57 @@ function runImageWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
 function getVideoConfig() {
     const { config } = useConfigStore.getState();
     const model = config.videoModel || config.model;
+    const modelName = modelOptionName(model);
+    const profile = getVideoModelProfile(modelName);
+    const remoteProfile = profile.kind !== "generic";
+    const sizeOptions = remoteProfile
+        ? profile.ratios.map((value) => ({ value: profile.kind === "grok" ? (value === "9:16" ? "720x1280" : "1280x720") : value, label: value === "16:9" ? "横屏" : value === "9:16" ? "竖屏" : "方形" }))
+        : videoSizeOptions;
+    const resolutionOptions = profile.kind === "video-v1" ? profile.qualityOptions.map((value) => ({ value, label: value.toUpperCase() })) : profile.kind === "video-v2" ? [{ value: "720p", label: "720p" }] : profile.kind === "grok" ? [{ value: "high", label: "high" }] : videoResolutionOptions;
     return {
         current: {
             model,
-            modelName: modelOptionName(model),
-            size: config.size || "1280x720",
-            seconds: config.videoSeconds || "6",
-            resolution: config.vquality || "720",
+            modelName,
+            size: remoteProfile ? normalizeVideoSizeForModel(modelName, config.size) : config.size || "1280x720",
+            seconds: remoteProfile ? normalizeVideoSecondsForModel(modelName, config.videoSeconds) : config.videoSeconds || "6",
+            resolution: remoteProfile ? normalizeVideoQualityForModel(modelName, config.vquality) : config.vquality || "720",
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
-        sizeOptions: videoSizeOptions,
-        secondsOptions: videoSecondOptions,
-        resolutionOptions: videoResolutionOptions,
+        sizeOptions,
+        secondsOptions: remoteProfile ? profile.seconds.map(String) : videoSecondOptions,
+        resolutionOptions,
     };
 }
 
 function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     const configStore = useConfigStore.getState();
     const applied: Record<string, unknown> = {};
+    let selectedModel = configStore.config.videoModel || configStore.config.model;
     if (typeof input.model === "string" && input.model.trim()) {
         const value = normalizeModelOptionValue(input.model, configStore.config.channels) || input.model;
         configStore.updateConfig("videoModel", value);
+        selectedModel = value;
         applied.model = value;
     }
+    const modelName = modelOptionName(selectedModel);
+    const profile = getVideoModelProfile(modelName);
+    const remoteProfile = profile.kind !== "generic";
     if (typeof input.size === "string" && input.size.trim()) {
-        configStore.updateConfig("size", input.size);
-        applied.size = input.size;
+        const value = remoteProfile ? normalizeVideoSizeForModel(modelName, input.size) : input.size;
+        configStore.updateConfig("size", value);
+        applied.size = value;
     }
     if (typeof input.seconds === "string" && input.seconds.trim()) {
-        configStore.updateConfig("videoSeconds", input.seconds);
-        applied.seconds = input.seconds;
+        const value = remoteProfile ? normalizeVideoSecondsForModel(modelName, input.seconds) : input.seconds;
+        configStore.updateConfig("videoSeconds", value);
+        applied.seconds = value;
     }
     if (typeof input.resolution === "string" && input.resolution.trim()) {
-        configStore.updateConfig("vquality", input.resolution);
-        applied.resolution = input.resolution;
+        const value = remoteProfile ? normalizeVideoQualityForModel(modelName, input.resolution) : input.resolution;
+        configStore.updateConfig("vquality", value);
+        applied.resolution = value;
     }
     if (typeof input.generateAudio === "boolean") {
         configStore.updateConfig("videoGenerateAudio", String(input.generateAudio));

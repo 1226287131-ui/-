@@ -1,4 +1,5 @@
-import { defaultConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, modelOptionName, type AiConfig } from "@/stores/use-config-store";
+import { normalizeVideoSettingsForModel } from "@/lib/video-model";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
@@ -91,14 +92,20 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
 
 export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
+    const model = node?.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model);
+    const videoSettings = normalizeVideoSettingsForModel(modelOptionName(model), {
+        seconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
+        size: node?.metadata?.size || config.size || defaultConfig.size,
+        quality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
+    });
     return {
         ...config,
-        model: node?.metadata?.model || defaultModel || (mode === "audio" ? defaultConfig.audioModel : config.model || defaultConfig.model),
+        model,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
-        size: node?.metadata?.size || config.size || defaultConfig.size,
+        size: mode === "video" ? videoSettings.size : node?.metadata?.size || config.size || defaultConfig.size,
         background: node?.metadata?.background ?? config.background ?? defaultConfig.background,
-        videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
+        videoSeconds: mode === "video" ? videoSettings.seconds : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
+        vquality: mode === "video" ? videoSettings.quality : node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,

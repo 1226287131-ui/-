@@ -5,6 +5,8 @@ import { Button } from "antd";
 
 import { VideoSettingsPanel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { modelOptionName } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -17,6 +19,11 @@ type CanvasVideoSettingsPopoverProps = {
 
 export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClassName, placement = "topLeft" }: CanvasVideoSettingsPopoverProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const model = modelOptionName(config.model || config.videoModel);
+    const profile = getVideoModelProfile(model);
+    const seconds = profile.kind === "generic" ? config.videoSeconds : normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const size = profile.kind === "generic" ? config.size : normalizeVideoSizeForModel(model, config.size);
+    const quality = profile.kind === "generic" ? config.vquality : normalizeVideoQualityForModel(model, config.vquality);
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
@@ -50,7 +57,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
-                        {videoResolutionLabel(config.vquality)} · {videoSizeLabel(config.size)} · {videoSecondsLabel(config.videoSeconds)}
+                        {videoResolutionLabel(quality)} · {videoSizeLabel(size)} · {videoSecondsLabel(seconds)}
                     </span>
                 </Button>
             </span>

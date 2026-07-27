@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
+import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { boolConfig, isSeedanceFastModel, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
@@ -28,15 +29,24 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
+    model?: string;
     onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
 };
 
-export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
-    if (isSeedanceVideoConfig(config)) {
-        return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+export function VideoSettingsPanel({ config, model: selectedModel, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
+    const videoModel = selectedModel || config.model || config.videoModel;
+    const videoConfig = { ...config, model: videoModel };
+    if (isSeedanceVideoConfig(videoConfig)) {
+        return <SeedanceVideoSettingsPanel config={config} model={videoModel} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+    }
+
+    const model = modelOptionName(videoModel);
+    const profile = getVideoModelProfile(model);
+    if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "grok") {
+        return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 
     const seconds = config.videoSeconds || "6";
@@ -104,8 +114,58 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     );
 }
 
-function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
-    const model = modelOptionName(config.model || config.videoModel);
+function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps & { model: string }) {
+    const profile = getVideoModelProfile(model);
+    const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const ratio = normalizeVideoRatioForModel(model, config.size);
+    const quality = normalizeVideoQualityForModel(model, config.vquality);
+    const isGrok = profile.kind === "grok";
+    const size = normalizeVideoSizeForModel(model, config.size);
+    const ratioLabels: Record<string, string> = { "16:9": "横屏", "9:16": "竖屏", "1:1": "方形" };
+
+    return (
+        <ImageSettingsTheme theme={theme}>
+            <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
+                {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
+                <SettingGroup title={isGrok ? "输出规格" : "画幅"} color={theme.node.muted}>
+                    <div className={`grid gap-2.5 ${isGrok ? "grid-cols-2" : "grid-cols-3"}`}>
+                        {profile.ratios.map((item) => {
+                            const selected = isGrok ? size === (item === "9:16" ? "720x1280" : "1280x720") : ratio === item;
+                            return (
+                                <OptionPill
+                                    key={item}
+                                    selected={selected}
+                                    theme={theme}
+                                    onClick={() => onConfigChange("size", isGrok ? (item === "9:16" ? "720x1280" : "1280x720") : item)}
+                                >
+                                    {ratioLabels[item] || item}
+                                </OptionPill>
+                            );
+                        })}
+                    </div>
+                    <div className="text-[11px] leading-4 opacity-55">
+                        {isGrok ? "Grok 固定 720p，quality=high" : profile.kind === "video-v2" ? "video-v2 固定 resolution=720p" : "video-v1 使用 quality=hd/sd"}
+                    </div>
+                </SettingGroup>
+                {profile.kind === "video-v1" ? (
+                    <SettingGroup title="质量" color={theme.node.muted}>
+                        <div className="grid grid-cols-2 gap-2.5">
+                            {profile.qualityOptions.map((item) => <OptionPill key={item} selected={quality === item} theme={theme} onClick={() => onConfigChange("vquality", item)}>{item.toUpperCase()}</OptionPill>)}
+                        </div>
+                    </SettingGroup>
+                ) : null}
+                <SettingGroup title="秒数" color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {profile.seconds.map((value) => <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>{value}s</OptionPill>)}
+                    </div>
+                </SettingGroup>
+            </div>
+        </ImageSettingsTheme>
+    );
+}
+
+function SeedanceVideoSettingsPanel({ config, model: selectedModel, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
+    const model = modelOptionName(selectedModel || config.model || config.videoModel);
     const resolution = normalizeSeedanceResolution(config.vquality, model);
     const ratio = normalizeSeedanceRatio(config.size);
     const duration = normalizeSeedanceDuration(config.videoSeconds);
@@ -169,6 +229,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
 }
 
 export function videoResolutionLabel(value: string) {
+    if (["hd", "sd", "high", "720p"].includes(String(value).toLowerCase())) return String(value).toUpperCase();
     return `${normalizeVideoResolutionValue(value)}p`;
 }
 
@@ -192,6 +253,7 @@ export function normalizeVideoSizeValue(value: string) {
 }
 
 export function normalizeVideoResolutionValue(value: string) {
+    if (["hd", "sd", "high"].includes(String(value).toLowerCase())) return String(value).toLowerCase();
     if (value === "480p" || value === "low") return "480";
     if (value === "720p" || value === "auto" || value === "high" || value === "medium") return "720";
     return value.replace(/p$/i, "") || "720";

@@ -5,15 +5,25 @@ export type UploadedFile = { url: string; storageKey: string; bytes: number; mim
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
+const MEDIA_FETCH_TIMEOUT_MS = 120_000;
+const MEDIA_METADATA_TIMEOUT_MS = 15_000;
+const MEDIA_STORAGE_TIMEOUT_MS = 30_000;
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
-    const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
+    const blob = typeof input === "string" ? await (await fetchWithTimeout(input)).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
-    await store.setItem(storageKey, blob);
+    let persistedStorageKey = "";
+    try {
+        await withTimeout(store.setItem(storageKey, blob), MEDIA_STORAGE_TIMEOUT_MS);
+        persistedStorageKey = storageKey;
+    } catch {
+        // IndexedDB failure must not block the current canvas result; keep the object URL usable for this session.
+    }
     const url = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, url);
-    const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
-    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
+    if (persistedStorageKey) objectUrls.set(persistedStorageKey, url);
+    const mimeType = blob.type || (prefix.startsWith("video") ? "video/mp4" : prefix.startsWith("audio") ? "audio/mpeg" : "application/octet-stream");
+    const meta = mimeType.startsWith("video/") ? await readVideoMeta(url) : mimeType.startsWith("audio/") ? await readAudioMeta(url) : {};
+    return { url, storageKey: persistedStorageKey, bytes: blob.size, mimeType, ...meta };
 }
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
@@ -68,9 +78,19 @@ export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()
 function readVideoMeta(url: string) {
     return new Promise<{ width: number; height: number; durationMs?: number }>((resolve) => {
         const video = document.createElement("video");
-        const done = () => resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined });
+        let settled = false;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            video.onloadedmetadata = null;
+            video.onerror = null;
+            resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined });
+        };
+        const timer = window.setTimeout(done, MEDIA_METADATA_TIMEOUT_MS);
         video.onloadedmetadata = done;
         video.onerror = done;
+        video.preload = "metadata";
         video.src = url;
     });
 }
@@ -78,9 +98,45 @@ function readVideoMeta(url: string) {
 function readAudioMeta(url: string) {
     return new Promise<{ durationMs?: number }>((resolve) => {
         const audio = document.createElement("audio");
-        const done = () => resolve({ durationMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined });
+        let settled = false;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            audio.onloadedmetadata = null;
+            audio.onerror = null;
+            resolve({ durationMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined });
+        };
+        const timer = window.setTimeout(done, MEDIA_METADATA_TIMEOUT_MS);
         audio.onloadedmetadata = done;
         audio.onerror = done;
+        audio.preload = "metadata";
         audio.src = url;
     });
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), MEDIA_FETCH_TIMEOUT_MS);
+    try {
+        const response = await fetch(input, { ...init, signal: init?.signal || controller.signal });
+        if (!response.ok) throw new Error(`媒体下载失败（${response.status}）`);
+        return response;
+    } finally {
+        window.clearTimeout(timer);
+    }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+    let timer: number | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+                timer = window.setTimeout(() => reject(new Error("媒体本地保存超时")), timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timer !== undefined) window.clearTimeout(timer);
+    }
 }
