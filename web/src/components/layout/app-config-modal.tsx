@@ -357,7 +357,9 @@ function normalizeImageCount(value: string) {
 }
 
 function apiFormatLabel(apiFormat: ApiCallFormat) {
-    return apiFormat === "gemini" ? "Gemini" : "OpenAI";
+    if (apiFormat === "gemini") return "Gemini";
+    if (apiFormat === "ark") return "火山方舟";
+    return "OpenAI";
 }
 
 function formatWebdavTime(value: string) {

@@ -768,17 +768,6 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     }
 }
 
-/** Seedream 系列模型和火山方舟 Ark 接口：图生图使用 /images/generations JSON 接口传 base64 参考图 */
-function isSeedreamRequestEdit(model: string, baseUrl: string) {
-    const modelLower = model.toLowerCase();
-    const baseUrlLower = baseUrl.toLowerCase();
-    return modelLower.includes("seedream") || modelLower.includes("doubao-seedream") || isArkApiUrl(baseUrlLower);
-}
-
-function isArkApiUrl(baseUrlLower: string) {
-    return baseUrlLower.includes("ark.cn-beijing.volces.com");
-}
-
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
@@ -813,18 +802,12 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         }
     }
 
-    // Seedream / 火山方舟 Ark 图生图：使用 /images/generations JSON 接口
-    // 不支持 OpenAI 的 /images/edits multipart 接口
-    if (isSeedreamRequestEdit(requestConfig.model, requestConfig.baseUrl)) {
+    if (requestConfig.apiFormat === "ark") {
         if (mask) throw new Error("蒙版编辑暂不支持该模型，请使用其他渠道");
         const quality = normalizeQuality(config.quality);
         const requestSize = resolveRequestSize(quality, config.size);
         const background = normalizeBackground(config.background);
-        const refs = await Promise.all(references.map(async (image) => {
-            const dataUrl = await imageToDataUrl(image);
-            // 火山方舟 image 参数需要完整的 data URL 格式
-            return dataUrl;
-        }));
+        const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
         try {
             const response = await axios.post<ImageApiResponse>(
                 aiApiUrl(requestConfig, "/images/generations"),
@@ -834,7 +817,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                     n,
                     response_format: "b64_json",
                     output_format: IMAGE_OUTPUT_FORMAT,
-                    image: refs,  // Seedream 图生图：base64 参考图数组
+                    image: refs,
                     ...(quality ? { quality } : {}),
                     ...(requestSize ? { size: requestSize } : {}),
                     ...(background ? { background } : {}),
@@ -850,7 +833,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         }
     }
 
-    // 标准 OpenAI 图生图：/images/edits multipart/form-data
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
