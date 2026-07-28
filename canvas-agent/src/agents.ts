@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { AGENT_PROMPT, VERSION } from "./config.js";
+import { logger } from "./utils/logger.js";
 import type { AgentAttachment, AgentEmit } from "./types.js";
 
 type Json = Record<string, unknown>;
@@ -39,6 +40,7 @@ export function interruptCodexTurn(threadId?: string) {
 async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: AgentAttachment[], options: CodexRunOptions) {
     let files: string[] = [];
     try {
+        logger.info("Preparing Codex turn", { threadId: options.threadId, cwd: options.cwd, prompt, attachmentCount: attachments.length });
         options.onStart?.();
         files = await writeAttachmentFiles(attachments);
         const app = await getCodexApp(options.appEmit || emit);
@@ -55,6 +57,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
             await app.startTurn(threadId, prompt, files, options.onTurn);
         }
     } catch (error) {
+        logger.error("Codex turn failed", error);
         emit("agent_error", { message: errorMessage(error) });
     } finally {
         options.onFinish?.();
@@ -153,12 +156,21 @@ class CodexAppClient {
     private constructor(private child: ChildProcess, private emit: AgentEmit) {}
 
     static async start(emit: AgentEmit) {
+        logger.info("Starting Codex app-server", { executable: process.execPath, codex: codexBin() });
         const child = spawn(process.execPath, [codexBin(), "app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         const client = new CodexAppClient(child, emit);
         child.stdout?.on("data", (chunk) => client.read(chunk.toString()));
-        child.stderr?.on("data", (chunk) => emit("agent_log", { text: chunk.toString() }));
-        child.on("error", (error) => emit("agent_error", { message: error.message }));
+        child.stderr?.on("data", (chunk) => {
+            const text = chunk.toString();
+            logger.warn("Codex app-server stderr", { text });
+            emit("agent_log", { text });
+        });
+        child.on("error", (error) => {
+            logger.error("Codex app-server process error", error);
+            emit("agent_error", { message: error.message });
+        });
         child.on("exit", (code) => {
+            logger.warn("Codex app-server exited", { code });
             client.failAll(`Codex app-server exited: ${code ?? 0}`);
             codexApp = null;
             codexThreadId = "";
@@ -214,6 +226,7 @@ class CodexAppClient {
     interruptCurrentTurn() {
         if (this.activeTurns.size === 0) return false;
         try {
+            logger.warn("Interrupting active Codex turn", { threadId: codexThreadId, activeTurns: this.activeTurns.size });
             this.child.kill("SIGINT");
             return true;
         } catch {
@@ -232,6 +245,7 @@ class CodexAppClient {
     }
 
     private write(value: unknown) {
+        logger.debug("Codex app-server request", value);
         this.child.stdin?.write(`${JSON.stringify(value)}\n`);
     }
 
@@ -242,13 +256,15 @@ class CodexAppClient {
         lines.filter(Boolean).forEach((line) => {
             try {
                 this.handle(JSON.parse(line) as Json);
-            } catch {
+            } catch (error) {
+                logger.warn("Invalid Codex app-server output", { error, line });
                 this.emit("agent_log", { text: line });
             }
         });
     }
 
     private handle(message: Json) {
+        logger.debug("Codex app-server response", message);
         const id = Number(message.id);
         if (message.error && this.pending.has(id)) return this.reject(id, String(field(message.error, "message") || "Codex request failed"));
         if (this.pending.has(id)) return this.resolve(id, message.result);
@@ -261,6 +277,13 @@ class CodexAppClient {
         if (method === "thread/tokenUsage/updated") this.lastUsage = normalizeUsage(params);
         const event = normalizeCodexNotification(method, params);
         if (!event) return;
+        if (event.type === "item.completed") {
+            const item = field(event, "item") as Json | undefined;
+            const id = String(field(item, "id") || "");
+            const streamedText = this.textByItem.get(id);
+            if (item?.type === "agent_message" && streamedText && !item.text) item.text = streamedText;
+            if (id) this.textByItem.delete(id);
+        }
         if (event.type === "turn.completed") event.usage = this.lastUsage;
         this.emit("agent_event", { agent: "codex", ...event });
         if (event.type === "turn.completed") {
@@ -432,7 +455,7 @@ function threadMessages(thread: unknown): AgentHistoryMessage[] {
             }
             if (type === "agentMessage") {
                 const text = String(field(item, "text") || "").trim();
-                if (text) messages.push({ id, role: "assistant", title: "Codex", text, streamId: id });
+                if (text) messages.push({ id, role: "assistant", title: "Codex", text });
             }
             if (type === "mcpToolCall") {
                 const tool = String(field(item, "tool") || "工具调用");

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { ServerResponse } from "node:http";
 
+import { logger } from "./utils/logger.js";
 import { type ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { AgentAttachment, CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
@@ -51,12 +52,14 @@ export class CanvasSession {
 
     setCodexState(patch: Partial<CodexState>) {
         this.codexState = { ...this.codexState, ...patch };
+        logger.debug("Codex state changed", this.codexState);
         this.emitAll("codex_state", this.codexState);
     }
 
     openEvents(url: URL, res: ServerResponse) {
         const clientId = url.searchParams.get("clientId") || crypto.randomUUID();
         const statusOnly = url.searchParams.get("role") === "status";
+        logger.info("SSE client connected", { clientId, statusOnly });
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
         if (!statusOnly) {
             this.clients.set(clientId, res);
@@ -70,6 +73,7 @@ export class CanvasSession {
         const timer = setInterval(() => sendEvent(res, "ping", { time: Date.now() }), 15000);
         res.on("close", () => {
             clearInterval(timer);
+            logger.info("SSE client disconnected", { clientId, statusOnly });
             if (statusOnly || this.clients.get(clientId) !== res) return;
             this.clients.delete(clientId);
             this.clientFocusOrder.delete(clientId);
@@ -88,21 +92,25 @@ export class CanvasSession {
         const targetClientId = clientId || this.activeClientId;
         if (!targetClientId) return;
         this.canvasStates.set(targetClientId, { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId: targetClientId } as CanvasSnapshot);
+        logger.debug("Canvas state updated", { clientId: targetClientId, nodes: Array.isArray((body as CanvasSnapshot | null)?.nodes) ? (body as CanvasSnapshot).nodes.length : 0, connections: Array.isArray((body as CanvasSnapshot | null)?.connections) ? (body as CanvasSnapshot).connections.length : 0 });
     }
 
     activateClient(clientId: string) {
         if (!this.clients.has(clientId)) throw new Error("当前网页未连接");
         this.activeClientId = clientId;
         this.clientFocusOrder.set(clientId, ++this.focusSequence);
+        logger.debug("Canvas client activated", { clientId });
     }
 
     bindClient(clientId: string) {
         if (!this.clients.has(clientId)) throw new Error("当前网页未连接");
         this.boundClientId = clientId;
+        logger.debug("Canvas client bound to turn", { clientId });
     }
 
     releaseClient(clientId: string) {
         if (this.boundClientId === clientId) this.boundClientId = "";
+        logger.debug("Canvas client released from turn", { clientId });
     }
 
     setTurnAttachments(clientId: string, attachments: AgentAttachment[]) {
@@ -142,6 +150,7 @@ export class CanvasSession {
         const item = body.requestId ? this.pending.get(body.requestId) : null;
         if (!item || !body.requestId || item.clientId !== clientId) return false;
         this.pending.delete(body.requestId);
+        logger.debug("Canvas tool result received", { clientId, requestId: body.requestId, error: body.error, result: body.result });
         body.error ? item.reject(new Error(body.error)) : item.resolve(body.result);
         return true;
     }
@@ -156,6 +165,7 @@ export class CanvasSession {
 
     async callTool(name: unknown, rawInput: unknown) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
+        logger.info("MCP tool called", { name, input: rawInput, targetClientId: this.targetClientId });
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
         if (SITE_TOOLS.has(tool)) {
@@ -296,9 +306,11 @@ export class CanvasSession {
         const client = this.clients.get(clientId);
         if (!client) throw new Error("当前没有已连接画布");
         sendEvent(client, "tool_call", { requestId, name, input });
+        logger.debug("Canvas tool request sent", { requestId, name, input, clientId });
         return await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
+                logger.warn("Canvas tool request timed out", { requestId, name, clientId });
                 reject(new Error("画布操作超时"));
             }, 30000);
             this.pending.set(requestId, { clientId, resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) });

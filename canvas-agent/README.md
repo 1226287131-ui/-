@@ -8,6 +8,14 @@
 npx -y @basketikun/canvas-agent
 ```
 
+需要排查连接、线程、Codex app-server 或工具调用问题时，可开启 Debug 模式：
+
+```bash
+npx -y @basketikun/canvas-agent --debug
+```
+
+Debug 日志会以 `[DEBUG][HH:mm:ss]` 等传统格式输出到终端，并按启动日期保存到 `~/.infinite-canvas/logs/canvas-agent-YYYY-MM-DD.log`。终端日志带级别颜色，文件日志为纯文本；日志包含 HTTP、SSE、线程、turn、Codex app-server 和工具调用事件，token 与图片 Data URL 会自动隐藏。
+
 本仓库开发时也可以直接运行：
 
 ```bash

@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "./config.js";
 import { CanvasSession } from "./canvas-session.js";
 import { archiveCodexThread, interruptCodexTurn, isRecoverableThreadError, listCodexThreads, readCodexThread, resumeCodexThread, runClaudeTurn, runCodexTurn, startCodexThread, summarizeCodexThread, verifyCodexThreadWorkspace, withAgentPrompt } from "./agents.js";
+import { logger } from "./utils/logger.js";
 import type { AgentAttachment } from "./types.js";
 
 export function startHttpServer() {
@@ -15,6 +16,7 @@ export function startHttpServer() {
     const emit = (type: string, payload: unknown) => {
         const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
         const threadId = String(data.threadId || data.thread_id || ensureSiteWorkspace(config).activeThreadId || "");
+        logger.debug("Agent event", { type, threadId, payload: data });
         threadId ? session.emitThread(type, threadId, data) : session.emitAll(type, data);
     };
     const setActiveThread = (activeThreadId: string, payload: Record<string, unknown> = {}) => {
@@ -25,6 +27,13 @@ export function startHttpServer() {
     const app = express();
     app.disable("x-powered-by");
     app.use(express.json({ limit: "30mb" }));
+    app.use((req, res, next) => {
+        if (!logger.enabled) return next();
+        const startedAt = Date.now();
+        const url = requestUrl(req, config);
+        res.on("finish", () => logger.debug("HTTP request", { method: req.method, path: url.pathname, status: res.statusCode, durationMs: Date.now() - startedAt, origin: req.headers.origin, clientId: url.searchParams.get("clientId") }));
+        next();
+    });
     app.use((req, res, next) => {
         const url = requestUrl(req, config);
         if (!setCors(req, res, url, config)) return void res.status(403).json({ ok: false, error: "origin not allowed" });
@@ -108,6 +117,7 @@ export function startHttpServer() {
         const prompt = String(req.body?.prompt || "");
         if (!prompt.trim()) return res.status(400).json({ ok: false, error: "请输入任务内容" });
         const clientId = String(req.body?.clientId || "");
+        logger.info("Codex turn accepted", { clientId, threadId: req.body?.threadId, prompt, attachments: attachments.map(({ id, name, type, size, width, height }) => ({ id, name, type, size, width, height })) });
         session.setCodexState({ busy: true, threadId: String(req.body?.threadId || workspace.activeThreadId || ""), turnId: "" });
         try {
             let threadId = String(req.body?.threadId || workspace.activeThreadId || "");
@@ -130,7 +140,7 @@ export function startHttpServer() {
                 const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
                 session.emitThread(type, threadId, data);
             };
-            void runCodexTurn(withAgentPrompt(withAttachmentContext(prompt, attachmentRefs)), turnEmit, attachments, {
+            void runCodexTurn(withAttachmentContext(prompt, attachmentRefs), turnEmit, attachments, {
                 threadId,
                 cwd: workspace.workspacePath,
                 appEmit: emit,
@@ -148,9 +158,11 @@ export function startHttpServer() {
                 },
                 onTurn: (actualTurnId) => {
                     turnId = actualTurnId;
+                    logger.info("Codex turn started", { threadId, turnId });
                     session.setCodexState({ busy: true, threadId, turnId });
                 },
                 onFinish: () => {
+                    logger.info("Codex turn finished", { threadId, turnId });
                     session.clearTurnAttachments(clientId);
                     if (clientId) session.releaseClient(clientId);
                     session.setCodexState({ busy: false, threadId, turnId });
@@ -171,7 +183,10 @@ export function startHttpServer() {
         res.json({ ok: true });
     });
     app.use((_req, res) => res.status(404).json({ ok: false, error: "not found" }));
-    app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => res.status(500).json({ ok: false, error: error.message }));
+    app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
+        logger.error("HTTP request failed", { method: req.method, path: req.path, error });
+        res.status(500).json({ ok: false, error: error.message });
+    });
 
     app.listen(port, "127.0.0.1", () => {
         console.log("Infinite Canvas Agent");
@@ -180,6 +195,8 @@ export function startHttpServer() {
         console.log("Codex MCP is not installed by this command.");
         console.log("Optional MCP add: codex mcp add infinite-canvas -- npx -y @basketikun/canvas-agent mcp");
         console.log("Remove manually added MCP: codex mcp remove infinite-canvas");
+        if (logger.enabled) console.log(`Debug log: ${logger.filePath}`);
+        logger.info("Canvas Agent started", { url: config.url, workspace: ensureSiteWorkspace(config).workspacePath, debugLog: logger.filePath });
     });
 }
 

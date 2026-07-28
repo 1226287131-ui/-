@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { App, Button, Input, Segmented, Tooltip } from "antd";
+import { App, Button, Checkbox, Input, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { ChevronDown, Copy, FolderOpen, History, KeyRound, Link2, LoaderCircle, MessageSquare, PlugZap, Plus, RefreshCw, Square, Terminal, Trash2 } from "lucide-react";
 
@@ -49,6 +49,7 @@ type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: 
 type AgentConfigResponse = { ok?: boolean; url?: string; token?: string; hasToken?: boolean };
 type AgentCodexState = { busy?: boolean; threadId?: string; turnId?: string };
 type AgentHelloEvent = { ok?: boolean; clientId?: string; codex?: AgentCodexState };
+type AgentHealth = { codexBusy?: boolean };
 type AgentWorkspaceEvent = { activeThreadId?: string; threadId?: string; emptyThread?: boolean };
 type AgentChatEvent = { threadId?: string; sourceClientId?: string; message?: AgentChatItem };
 
@@ -102,6 +103,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     const attachmentUrlsRef = useRef(new Set<string>());
     const clientIdRef = useRef(randomId());
     const loadThreadsSequenceRef = useRef(0);
+    const turnSyncSequenceRef = useRef(0);
     const endpoint = useMemo(() => url.trim().replace(/\/$/, ""), [url]);
     const urlAgentAutoConnect = searchParams.has("agentUrl") && searchParams.has("agentToken");
     const loadThreads = useCallback(async (skipHistory = false) => {
@@ -124,6 +126,21 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             if (sequence === loadThreadsSequenceRef.current) setAgentState({ loadingThreads: false });
         }
     }, [endpoint, setAgentState, token]);
+    const syncTurnMessages = async (sequence: number) => {
+        while (sequence === turnSyncSequenceRef.current && useAgentStore.getState().connected) {
+            try {
+                const health = await fetchAgentJson<AgentHealth>(endpoint, token, "/health");
+                if (!health.codexBusy) {
+                    await wait(300);
+                    if (sequence !== turnSyncSequenceRef.current) return;
+                    await loadThreads();
+                    if (sequence === turnSyncSequenceRef.current) setAgentState({ waiting: false, sending: false, activity: "完成" });
+                    return;
+                }
+            } catch {}
+            await wait(500);
+        }
+    };
 
     // canvasContext 命令式订阅：保持 ref 最新，并在快照变化时防抖上报，全程不触发面板重渲染。
     useEffect(() => {
@@ -313,7 +330,9 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 URL.revokeObjectURL(item.url);
                 attachmentUrlsRef.current.delete(item.url);
             });
-            setAgentState({ prompt: "", attachments: [] });
+            setAgentState({ prompt: "", attachments: [], sending: false, waiting: true, activity: "Codex 正在运行" });
+            const sequence = ++turnSyncSequenceRef.current;
+            void syncTurnMessages(sequence);
         } catch (error) {
             const text = error instanceof Error ? error.message : "发送失败";
             const busy = text.includes("Codex 正在运行");
@@ -512,6 +531,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
 
     function clearAgentSession(patch: Parameters<typeof setAgentState>[0] = {}) {
         loadThreadsSequenceRef.current += 1;
+        turnSyncSequenceRef.current += 1;
         setAgentState({
             messages: [],
             threads: [],
@@ -554,18 +574,19 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         }
     };
 
-    const deleteThread = async (threadId: string) => {
-        if (!connected || !threadId || sending || waiting) return;
+    const deleteThreads = async (threadIds: string[]) => {
+        if (!connected || !threadIds.length || sending || waiting) return;
         setAgentState({ loadingThreads: true });
         try {
-            await fetchAgentJson(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/delete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+            await Promise.all(threadIds.map((threadId) => fetchAgentJson(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/delete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) })));
             const current = useAgentStore.getState();
+            const deleted = new Set(threadIds);
             setAgentState({
-                threads: current.threads.filter((thread) => thread.id !== threadId),
-                activeThreadId: current.activeThreadId === threadId ? "" : current.activeThreadId,
-                messages: current.activeThreadId === threadId ? [] : current.messages,
+                threads: current.threads.filter((thread) => !deleted.has(thread.id)),
+                activeThreadId: deleted.has(current.activeThreadId) ? "" : current.activeThreadId,
+                messages: deleted.has(current.activeThreadId) ? [] : current.messages,
             });
-            message.success("记录已删除");
+            message.success(`已删除 ${threadIds.length} 条记录`);
         } catch (error) {
             addEventLog("删除对话失败", error);
             message.error(error instanceof Error ? error.message : "删除对话失败");
@@ -574,15 +595,14 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         }
     };
 
-    const confirmDeleteThread = (thread: AgentThreadSummary) => {
-        const label = thread.name || thread.preview || "未命名对话";
+    const confirmDeleteThreads = (threadIds: string[]) => {
         modal.confirm({
-            title: "删除对话记录",
-            content: `确定删除「${label.length > 48 ? `${label.slice(0, 48)}...` : label}」吗？`,
+            title: `删除 ${threadIds.length} 条对话记录`,
+            content: "删除后无法恢复，确定继续吗？",
             okText: "删除",
             okType: "danger",
             cancelText: "取消",
-            onOk: () => deleteThread(thread.id),
+            onOk: () => deleteThreads(threadIds),
         });
     };
 
@@ -616,10 +636,21 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     const handleAgentEvent = (event: AgentEventPayload) => {
         if (shouldLogAgentEvent(event)) addEventLog(eventTitle(event), event, event);
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
+        if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.id) {
+            const currentMessages = useAgentStore.getState().messages;
+            const index = currentMessages.findIndex((message) => message.streamId === event.item?.id);
+            if (index >= 0) {
+                const text = stringText(event.item.text);
+                setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text: text || message.text, meta: usageText(event) || message.meta, streamId: undefined } : message)) });
+                return;
+            }
+        }
+        if (event.type === "turn.completed") setAgentState({ messages: useAgentStore.getState().messages.map((message) => (message.streamId ? { ...message, streamId: undefined } : message)) });
         const item = formatAgentEvent(event);
         if (item) addMessage(item);
     };
 
+    const streaming = messages.some((message) => message.streamId);
     const content = (
         <>
             <AgentPanelTabs
@@ -669,7 +700,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                     onRefresh={() => void loadThreads()}
                     onNewThread={() => void startNewThread()}
                     onResumeThread={(threadId) => void resumeThread(threadId)}
-                    onDeleteThread={confirmDeleteThread}
+                    onDeleteThreads={confirmDeleteThreads}
                 />
             ) : activeTab === "log" ? (
                 <AgentLogView
@@ -696,7 +727,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                                     onApprove={approvePendingTool}
                                 />
                             ) : null}
-                            {waiting && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
+                            {(sending || waiting) && !streaming && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
                         </div>
                         {showScrollToBottom ? (
                             <Tooltip title="滚动到底部" placement="left">
@@ -967,7 +998,7 @@ function AgentHistoryView({
     onRefresh,
     onNewThread,
     onResumeThread,
-    onDeleteThread,
+    onDeleteThreads,
 }: {
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     threads: AgentThreadSummary[];
@@ -979,8 +1010,18 @@ function AgentHistoryView({
     onRefresh: () => void;
     onNewThread: () => void;
     onResumeThread: (threadId: string) => void;
-    onDeleteThread: (thread: AgentThreadSummary) => void;
+    onDeleteThreads: (threadIds: string[]) => void;
 }) {
+    const [selectedIds, setSelectedIds] = useState(() => new Set<string>());
+    const selectedThreads = threads.filter((thread) => selectedIds.has(thread.id));
+    const allSelected = Boolean(threads.length) && selectedThreads.length === threads.length;
+    const toggleThread = (threadId: string) => {
+        setSelectedIds((current) => {
+            const next = new Set(current);
+            next.has(threadId) ? next.delete(threadId) : next.add(threadId);
+            return next;
+        });
+    };
     return (
         <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
             <div className="space-y-3">
@@ -992,10 +1033,16 @@ function AgentHistoryView({
                     </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm" style={{ color: theme.node.muted }}>
-                        {threads.length ? `${threads.length} 条历史` : connected ? "暂无历史" : "未连接"}
+                    <div className="flex items-center gap-2 text-sm" style={{ color: theme.node.muted }}>
+                        {threads.length ? <Checkbox checked={allSelected} indeterminate={Boolean(selectedThreads.length) && !allSelected} disabled={loading || busy} onChange={() => setSelectedIds(allSelected ? new Set() : new Set(threads.map((thread) => thread.id)))} /> : null}
+                        <span>{selectedThreads.length ? `已选 ${selectedThreads.length} 条` : threads.length ? `${threads.length} 条历史` : connected ? "暂无历史" : "未连接"}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                        {selectedThreads.length ? (
+                            <Button size="small" danger type="text" icon={<Trash2 className="size-3.5" />} disabled={loading || busy} onClick={() => onDeleteThreads(selectedThreads.map((thread) => thread.id))}>
+                                删除 {selectedThreads.length} 条
+                            </Button>
+                        ) : null}
                         <Button size="small" icon={<RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />} disabled={!connected || loading} onClick={onRefresh}>
                             刷新
                         </Button>
@@ -1008,8 +1055,28 @@ function AgentHistoryView({
                     {threads.map((thread) => {
                         const active = thread.id === activeThreadId;
                         return (
-                            <div key={thread.id} className="rounded-lg border px-2.5 py-1.5 transition" style={{ borderColor: active ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}>
+                            <div
+                                key={thread.id}
+                                role="button"
+                                tabIndex={0}
+                                className="cursor-pointer rounded-lg border px-2.5 py-2 transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/20 dark:hover:bg-white/10"
+                                style={{ borderColor: active ? theme.node.text : theme.node.stroke, background: "transparent", color: theme.node.text }}
+                                onClick={() => onResumeThread(thread.id)}
+                                onKeyDown={(event) => {
+                                    if (event.key !== "Enter" && event.key !== " ") return;
+                                    event.preventDefault();
+                                    onResumeThread(thread.id);
+                                }}
+                            >
                                 <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        checked={selectedIds.has(thread.id)}
+                                        disabled={loading || busy}
+                                        aria-label={`选择${thread.name || thread.preview || "未命名对话"}`}
+                                        onClick={(event) => event.stopPropagation()}
+                                        onKeyDown={(event) => event.stopPropagation()}
+                                        onChange={() => toggleThread(thread.id)}
+                                    />
                                     <div className="min-w-0 flex-1">
                                         <div className="flex min-w-0 items-center gap-1.5">
                                             {active ? (
@@ -1021,15 +1088,7 @@ function AgentHistoryView({
                                         </div>
                                         <div className="truncate text-[11px] leading-4 opacity-65">{thread.preview || thread.id}</div>
                                     </div>
-                                    <div className="flex shrink-0 items-center gap-1">
-                                        <span className="text-[10px] opacity-55">{formatThreadTime(thread.updatedAt || thread.createdAt)}</span>
-                                        <Button size="small" className="!h-6 !px-2" disabled={loading || busy} onClick={() => onResumeThread(thread.id)}>
-                                            进入
-                                        </Button>
-                                        <Tooltip title="删除记录">
-                                            <Button size="small" danger type="text" className="!h-6 !w-6 !min-w-6" disabled={loading || busy} icon={<Trash2 className="size-3.5" />} onClick={() => onDeleteThread(thread)} />
-                                        </Tooltip>
-                                    </div>
+                                    <span className="shrink-0 text-[10px] opacity-55">{formatThreadTime(thread.updatedAt || thread.createdAt)}</span>
                                 </div>
                             </div>
                         );
@@ -1076,7 +1135,7 @@ function agentAttachmentToChatAttachment(item: AgentAttachment): CanvasAgentChat
 function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
     const item = event.item;
     if (event.type === "item.completed" && item?.type === "error") return { role: "error", title: "错误", text: normalizeText(item.message), detail: item };
-    if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), meta: usageText(event), streamId: item.id };
+    if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), meta: usageText(event), streamId: event.type === "item.updated" ? item.id : undefined };
     if (event.type === "item.completed" && isMcpToolItem(item) && isReadTool(String(item?.tool || ""))) return { role: "tool", title: `${toolName(String(item?.tool || ""))}完成`, text: item?.error?.message || toolSummary(item), detail: toolDetail(item) };
     const text = eventText(event);
     if (text) return { role: "assistant", title: "Codex", text, meta: usageText(event) };
@@ -1343,6 +1402,7 @@ function normalizeHistoryMessages(messages: AgentChatItem[]) {
             ...item,
             id: item.id || `history-${index}`,
             text: normalizeText(item.text),
+            streamId: undefined,
         }))
         .filter((item) => item.text);
 }
@@ -1354,6 +1414,10 @@ function formatThreadTime(value?: number) {
 
 function createId() {
     return randomId();
+}
+
+function wait(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function clamp(value: number, min: number, max: number) {
