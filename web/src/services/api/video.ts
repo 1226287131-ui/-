@@ -261,6 +261,7 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         return { status: "pending" };
     } catch (error) {
         throwIfRequestAborted(error, options?.signal);
+        if (isRetryableVideoPollError(error)) return { status: "pending" };
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
 }
@@ -274,10 +275,12 @@ async function pollVideoV1Task(config: AiConfig, task: VideoGenerationTask, opti
         if (isFailureStatus(status)) return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "video-v1 视频生成失败" };
         // 部分中转站会在状态仍为 IN_PROGRESS 时先写入成片 URL，URL 优先视为完成。
         if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
-        if (isSuccessStatus(status)) return { status: "failed", error: "video-v1 任务成功但没有返回视频 URL" };
+        // 成功状态和视频 URL 可能分开写入；在成片真正可用前继续查询。
+        if (isSuccessStatus(status)) return { status: "pending" };
         return { status: "pending" };
     } catch (error) {
         throwIfRequestAborted(error, options?.signal);
+        if (isRetryableVideoPollError(error)) return { status: "pending" };
         throw new Error(readAxiosError(error, "video-v1 任务查询失败"));
     }
 }
@@ -303,6 +306,7 @@ async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTas
         return { status: "pending" };
     } catch (error) {
         throwIfRequestAborted(error, options?.signal);
+        if (isRetryableVideoPollError(error)) return { status: "pending" };
         throw new Error(readAxiosError(error, `${label} 任务查询失败`));
     }
 }
@@ -348,14 +352,15 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
 
 async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const state = unwrapSeedanceTask((await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, task.id), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const state = unwrapSeedanceTask((await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, task.id), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data);
         const url = videoResultUrl(state, config.baseUrl);
         if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
-        if (state.status === "succeeded" || state.status === "completed") return { status: "failed", error: "Seedance 任务成功但没有返回视频 URL" };
+        if (state.status === "succeeded" || state.status === "completed") return { status: "pending" };
         if (state.status === "failed" || state.status === "cancelled" || state.status === "expired") return { status: "failed", error: readApiErrorMessage(state.error?.message) || `Seedance 视频生成${state.status === "expired" ? "超时" : "失败"}` };
         return { status: "pending" };
     } catch (error) {
         throwIfRequestAborted(error, options?.signal);
+        if (isRetryableVideoPollError(error)) return { status: "pending" };
         throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
     }
 }
@@ -622,8 +627,16 @@ function statusMessage(status: number | undefined, fallback: string) {
     return status ? `${fallback}（${status}）` : fallback;
 }
 
+function isRetryableVideoPollError(error: unknown) {
+    if (error instanceof NonVideoResponseError) return true;
+    if (!axios.isAxiosError(error)) return false;
+    if (["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"].includes(error.code || "")) return true;
+    const status = error.response?.status;
+    return !status || status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
 async function assertVideoBlob(blob: Blob) {
-    if (!blob.size) throw new Error("视频下载接口返回了空内容");
+    if (!blob.size) throw new NonVideoResponseError("视频下载接口返回了空内容");
     const mime = (blob.type || "").toLowerCase();
     const declaredText = mime.includes("json") || mime.includes("html") || mime.startsWith("text/");
     const inspectUnknownMime = !mime || mime === "application/octet-stream";
