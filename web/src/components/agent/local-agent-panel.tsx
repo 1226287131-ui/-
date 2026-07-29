@@ -632,7 +632,13 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             pushMessage(item);
             return;
         }
-        setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, ...item } : message)) });
+        setAgentState({
+            messages: currentMessages.map((message, i) => {
+                if (i !== index) return message;
+                const preserveReasoning = item.title === "思考摘要" && item.text === "已完成分析" && Boolean(message.text.trim()) && message.text !== activityPlaceholder("reasoning");
+                return { ...message, ...item, ...(preserveReasoning ? { text: message.text } : {}) };
+            }),
+        });
     };
 
     const appendActivityDelta = (item: AgentEventItem) => {

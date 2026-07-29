@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Image } from "antd";
-import { Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, Wrench, XCircle } from "lucide-react";
+import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, Wrench, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -86,9 +86,11 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
 export function AgentToolCard({ title, text, detail, theme }: { title: string; text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     const plan = planDetail(detail);
     if (plan) return <AgentPlanCard title={title} plan={plan} theme={theme} />;
+    const kind = String(objectField(detail, "kind") || "");
+    if (kind === "reasoning") return <AgentReasoningSummary text={text} detail={detail} theme={theme} />;
+    if (kind === "command") return <AgentCommandSummary text={text} detail={detail} theme={theme} />;
     const state = toolCardState(title, text, detail);
     const view = userDetail(detail);
-    const kind = String(objectField(detail, "kind") || "");
     return (
         <details className="group min-w-0 rounded-xl border px-3 py-2.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
             <summary className={`list-none ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
@@ -101,6 +103,44 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
                 <div className={`mt-1 whitespace-pre-wrap break-words pl-6 text-sm leading-5 ${kind === "command" ? "font-mono text-[12px]" : ""}`} style={{ color: state.isError ? state.color : theme.node.muted }}>
                     {text}
                 </div>
+            </summary>
+            {view ? <div className="ml-6"><AgentDetailBlock detail={view} theme={theme} /></div> : null}
+        </details>
+    );
+}
+
+function AgentReasoningSummary({ text, detail, theme }: { text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const status = String(objectField(detail, "status") || "");
+    const running = ["inProgress", "in_progress", "running", "started", "pending"].includes(status);
+    return (
+        <details className="group min-w-0 text-left">
+            <summary className="cursor-pointer list-none py-1 text-sm" style={{ color: theme.node.muted }}>
+                <div className="flex min-w-0 items-center gap-2">
+                    {running ? <LoaderCircle className="size-4 shrink-0 animate-spin" /> : <Brain className="size-4 shrink-0" />}
+                    <span>{running ? "正在思考" : "思考摘要"}</span>
+                    <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
+                </div>
+            </summary>
+            <div className="whitespace-pre-wrap break-words pb-1 pl-6 pr-2 text-xs leading-5" style={{ color: theme.node.muted }}>{text}</div>
+        </details>
+    );
+}
+
+function AgentCommandSummary({ text, detail, theme }: { text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const view = userDetail(detail);
+    const status = String(objectField(detail, "status") || "");
+    const running = ["inProgress", "in_progress", "running", "started", "pending"].includes(status);
+    const failed = ["failed", "error"].includes(status);
+    const color = failed ? "#dc2626" : running ? "#d97706" : theme.node.muted;
+    return (
+        <details className="group min-w-0 text-left">
+            <summary className={`list-none py-1 ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
+                <div className="flex min-w-0 items-center gap-2 text-sm" style={{ color }}>
+                    {running ? <LoaderCircle className="size-4 shrink-0 animate-spin" /> : <TerminalSquare className="size-4 shrink-0" />}
+                    <span className="font-medium">{failed ? "命令执行失败" : running ? "正在执行命令" : "已执行 1 条命令"}</span>
+                    {view ? <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" /> : null}
+                </div>
+                <div className="mt-1 truncate pl-6 font-mono text-[12px] leading-5" style={{ color: failed ? color : theme.node.muted }} title={text}>{text}</div>
             </summary>
             {view ? <div className="ml-6"><AgentDetailBlock detail={view} theme={theme} /></div> : null}
         </details>
@@ -241,8 +281,6 @@ function toolCardState(title: string, text: string, detail?: unknown) {
 }
 
 function toolIcon(kind: string | undefined, fallback: ReactNode) {
-    if (kind === "reasoning") return <Brain className="size-4" />;
-    if (kind === "command") return <TerminalSquare className="size-4" />;
     if (kind === "search") return <Search className="size-4" />;
     if (kind === "file") return <FilePenLine className="size-4" />;
     if (kind === "plan") return <ListChecks className="size-4" />;
