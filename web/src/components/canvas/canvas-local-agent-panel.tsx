@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Checkbox, Input, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
@@ -12,7 +12,7 @@ import { readImageMeta } from "@/lib/image-utils";
 import { randomId } from "@/lib/utils";
 import { uploadImage } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentAttachment, type AgentCanvasContext, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary, type AgentTokenUsage } from "@/stores/use-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
@@ -42,7 +42,7 @@ type AgentEventPayload = {
     usage?: Record<string, unknown>;
     duration_ms?: number;
 };
-type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
+type AgentEventItem = { id?: string; type?: string; text?: unknown; delta?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
 type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
 type AgentWorkspace = { workspacePath: string; activeThreadId?: string };
@@ -51,13 +51,11 @@ type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: 
 type AgentConfigResponse = { ok?: boolean; url?: string; token?: string; hasToken?: boolean };
 type AgentCodexState = { busy?: boolean; threadId?: string; turnId?: string };
 type AgentHelloEvent = { ok?: boolean; clientId?: string; codex?: AgentCodexState };
-type AgentHealth = { codexBusy?: boolean };
 type AgentWorkspaceEvent = { activeThreadId?: string; threadId?: string; emptyThread?: boolean };
 type AgentChatEvent = { threadId?: string; sourceClientId?: string; message?: AgentChatItem };
 
 export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { embedded?: boolean; headless?: boolean; autoConnect?: boolean }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    const user = useUserStore((state) => state.user);
     const { message, modal } = App.useApp();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
@@ -65,7 +63,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     // 注意：canvasContext 不在此订阅内 —— 它在拖拽/resize 时会被 project 每帧写入，
     // 但面板只在 ref 同步与防抖 postState 中用到它、渲染层从不读它。若把它放进订阅，
     // 面板会随画布每帧重渲染（性能问题，也是 #185 崩溃的放大器）。改为下方 subscribe 命令式监听。
-    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, messages, tokenUsage, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool } = useAgentStore(
+    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, tokenUsage, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool } = useAgentStore(
         useShallow((state) => ({
             width: state.width,
             url: state.url,
@@ -76,7 +74,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             attachments: state.attachments,
             sending: state.sending,
             waiting: state.waiting,
-            messages: state.messages,
             tokenUsage: state.tokenUsage,
             eventLogs: state.eventLogs,
             threads: state.threads,
@@ -94,9 +91,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     const pushMessage = useAgentStore((state) => state.addMessage);
     const pushEventLog = useAgentStore((state) => state.addEventLog);
     const clearEventLogs = useAgentStore((state) => state.clearEventLogs);
-    const listRef = useRef<HTMLDivElement>(null);
-    const followMessagesRef = useRef(true);
-    const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+    const messageCount = useAgentStore((state) => state.messages.length);
     const canvasContextRef = useRef<AgentCanvasContext | null>(useAgentStore.getState().canvasContext);
     const confirmToolsRef = useRef(confirmTools);
     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
@@ -106,7 +101,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     const attachmentUrlsRef = useRef(new Set<string>());
     const clientIdRef = useRef(randomId());
     const loadThreadsSequenceRef = useRef(0);
-    const turnSyncSequenceRef = useRef(0);
     const endpoint = useMemo(() => url.trim().replace(/\/$/, ""), [url]);
     const urlAgentAutoConnect = searchParams.has("agentUrl") && searchParams.has("agentToken");
     const loadThreads = useCallback(async (skipHistory = false) => {
@@ -114,37 +108,24 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         const sequence = ++loadThreadsSequenceRef.current;
         setAgentState({ loadingThreads: true });
         try {
+            const currentThreadId = useAgentStore.getState().activeThreadId;
+            const currentThreadRequest = currentThreadId && !skipHistory ? fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(currentThreadId)}`).catch(() => null) : null;
             const data = await fetchAgentJson<AgentThreadsResponse>(endpoint, token, `/agent/codex/threads`);
             const nextThreadId = data.workspace?.activeThreadId || "";
             let nextMessages: AgentChatItem[] = [];
             if (nextThreadId && !skipHistory) {
-                const thread = await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(nextThreadId)}`);
+                let thread = nextThreadId === currentThreadId ? await currentThreadRequest : null;
+                thread ||= await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(nextThreadId)}`);
                 nextMessages = normalizeHistoryMessages(thread.messages || []);
             }
             if (sequence !== loadThreadsSequenceRef.current) return;
-            setAgentState({ threads: data.data || [], workspacePath: data.workspace?.workspacePath || "", activeThreadId: nextThreadId, messages: nextMessages });
+            setAgentState({ threads: data.data || [], workspacePath: data.workspace?.workspacePath || "", activeThreadId: nextThreadId, ...(skipHistory ? {} : { messages: nextMessages }) });
         } catch (error) {
             addEventLog("读取历史失败", error);
         } finally {
             if (sequence === loadThreadsSequenceRef.current) setAgentState({ loadingThreads: false });
         }
     }, [endpoint, setAgentState, token]);
-    const syncTurnMessages = async (sequence: number) => {
-        while (sequence === turnSyncSequenceRef.current && useAgentStore.getState().connected) {
-            try {
-                const health = await fetchAgentJson<AgentHealth>(endpoint, token, "/health");
-                if (!health.codexBusy) {
-                    await wait(300);
-                    if (sequence !== turnSyncSequenceRef.current) return;
-                    await loadThreads();
-                    if (sequence === turnSyncSequenceRef.current) setAgentState({ waiting: false, sending: false, activity: "完成" });
-                    return;
-                }
-            } catch {}
-            await wait(500);
-        }
-    };
-
     // canvasContext 命令式订阅：保持 ref 最新，并在快照变化时防抖上报，全程不触发面板重渲染。
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -166,30 +147,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     useEffect(() => {
         pendingToolRef.current = pendingTool;
     }, [pendingTool]);
-    const updateScrollState = useCallback(() => {
-        const list = listRef.current;
-        if (!list) return;
-        const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= SCROLL_BOTTOM_THRESHOLD;
-        followMessagesRef.current = atBottom;
-        setShowScrollToBottom(!atBottom);
-    }, []);
-    const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-        const list = listRef.current;
-        if (!list) return;
-        followMessagesRef.current = true;
-        list.scrollTo({ top: list.scrollHeight, behavior });
-        setShowScrollToBottom(false);
-    }, []);
-    useEffect(() => {
-        if (activeTab !== "chat") return;
-        const frame = requestAnimationFrame(() => scrollToBottom("auto"));
-        return () => cancelAnimationFrame(frame);
-    }, [activeTab, activeThreadId, scrollToBottom]);
-    useEffect(() => {
-        if (activeTab !== "chat") return;
-        const frame = requestAnimationFrame(() => (followMessagesRef.current ? scrollToBottom("auto") : updateScrollState()));
-        return () => cancelAnimationFrame(frame);
-    }, [activeTab, messages, pendingTool, scrollToBottom, updateScrollState, waiting]);
     useEffect(() => () => attachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
     useEffect(() => {
@@ -233,11 +190,11 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         source.addEventListener("workspace_changed", (event) => {
             const data = parseEventData<AgentWorkspaceEvent>(event);
             if (!data) return;
-            enqueueEvent(async () => {
+            enqueueEvent(() => {
                 const nextThreadId = data.activeThreadId ?? data.threadId ?? "";
                 pendingToolRef.current = null;
                 setAgentState({ activeThreadId: nextThreadId, messages: [], tokenUsage: null, pendingTool: null });
-                await loadThreads(data.emptyThread);
+                void loadThreads(Boolean(data.emptyThread));
             });
         });
         source.addEventListener("chat_message", (event) => {
@@ -333,8 +290,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 attachmentUrlsRef.current.delete(item.url);
             });
             setAgentState({ prompt: "", attachments: [], sending: false, waiting: true, activity: "Codex 正在运行" });
-            const sequence = ++turnSyncSequenceRef.current;
-            void syncTurnMessages(sequence);
         } catch (error) {
             const text = error instanceof Error ? error.message : "发送失败";
             const busy = text.includes("Codex 正在运行");
@@ -533,7 +488,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
 
     function clearAgentSession(patch: Parameters<typeof setAgentState>[0] = {}) {
         loadThreadsSequenceRef.current += 1;
-        turnSyncSequenceRef.current += 1;
         setAgentState({
             messages: [],
             tokenUsage: null,
@@ -645,6 +599,10 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         const log = formatAgentEventLog(event);
         if (log) addEventLog(log.title, log.text);
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
+        if (event.type === "item.updated" && event.item?.type === "agent_message" && event.item.id) {
+            appendStreamDelta(event.item.id, stringText(event.item.delta));
+            return;
+        }
         if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.id) {
             const currentMessages = useAgentStore.getState().messages;
             const index = currentMessages.findIndex((message) => message.streamId === event.item?.id);
@@ -659,7 +617,17 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         if (item) addMessage(item);
     };
 
-    const streaming = messages.some((message) => message.streamId);
+    const appendStreamDelta = (streamId: string, delta: string) => {
+        if (!delta) return;
+        const currentMessages = useAgentStore.getState().messages;
+        const index = currentMessages.findIndex((message) => message.streamId === streamId);
+        if (index < 0) {
+            pushMessage({ id: `stream-${streamId}`, role: "assistant", title: "Codex", text: delta, streamId });
+            return;
+        }
+        setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text: `${message.text}${delta}` } : message)) });
+    };
+
     const content = (
         <>
             <AgentPanelTabs
@@ -715,43 +683,14 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 <AgentLogView
                     logs={eventLogs}
                     theme={theme}
-                    context={{ endpoint, connected, enabled, activity, waiting, sending, messages: messages.length, pendingTool: pendingTool?.name }}
+                    context={{ endpoint, connected, enabled, activity, waiting, sending, messages: messageCount, pendingTool: pendingTool?.name }}
                     onClear={clearEventLogs}
                     onCopied={(text) => message.success(text)}
                     onCopyBlocked={(text) => message.warning(text)}
                 />
             ) : (
                 <>
-                    <div className="relative min-h-0 flex-1">
-                        <div ref={listRef} className="thin-scrollbar h-full space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
-                            {messages.map((item) => (
-                                <AgentChatMessage key={item.id} item={agentMessageToChatMessage(item)} theme={theme} user={user} />
-                            ))}
-                            {pendingTool ? (
-                                <AgentPendingToolCard
-                                    summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
-                                    detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input }}
-                                    theme={theme}
-                                    onReject={rejectPendingTool}
-                                    onApprove={approvePendingTool}
-                                />
-                            ) : null}
-                            {(sending || waiting) && !streaming && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
-                        </div>
-                        {showScrollToBottom ? (
-                            <Tooltip title="滚动到底部" placement="left">
-                                <Button
-                                    type="text"
-                                    shape="circle"
-                                    aria-label="滚动到底部"
-                                    className="!absolute bottom-3 left-1/2 z-10 !h-8 !w-8 !min-w-8 -translate-x-1/2 backdrop-blur transition hover:-translate-y-0.5"
-                                    style={{ background: theme.toolbar.panel, border: `1px solid ${theme.node.stroke}`, color: theme.node.text }}
-                                    icon={<ChevronDown className="size-4" />}
-                                    onClick={() => scrollToBottom()}
-                                />
-                            </Tooltip>
-                        ) : null}
-                    </div>
+                    <AgentChatTimeline theme={theme} pendingTool={pendingTool} sending={sending} waiting={waiting} onRejectTool={rejectPendingTool} onApproveTool={approvePendingTool} />
                     {tokenUsage ? <AgentUsageBar usage={tokenUsage} theme={theme} /> : null}
                     <AgentChatComposer
                         prompt={prompt}
@@ -781,6 +720,87 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     if (headless) return null;
     return embedded ? content : null;
 }
+
+function AgentChatTimeline({
+    theme,
+    pendingTool,
+    sending,
+    waiting,
+    onRejectTool,
+    onApproveTool,
+}: {
+    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
+    pendingTool: AgentPendingToolCall | null;
+    sending: boolean;
+    waiting: boolean;
+    onRejectTool: () => void;
+    onApproveTool: () => void;
+}) {
+    const messages = useAgentStore((state) => state.messages);
+    const user = useUserStore((state) => state.user);
+    const listRef = useRef<HTMLDivElement>(null);
+    const followMessagesRef = useRef(true);
+    const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+    const streaming = messages.some((message) => message.streamId);
+    const updateScrollState = useCallback(() => {
+        const list = listRef.current;
+        if (!list) return;
+        const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= SCROLL_BOTTOM_THRESHOLD;
+        followMessagesRef.current = atBottom;
+        setShowScrollToBottom(!atBottom);
+    }, []);
+    const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+        const list = listRef.current;
+        if (!list) return;
+        followMessagesRef.current = true;
+        list.scrollTo({ top: list.scrollHeight, behavior });
+        setShowScrollToBottom(false);
+    }, []);
+    useEffect(() => {
+        const frame = requestAnimationFrame(() => (followMessagesRef.current ? scrollToBottom("auto") : updateScrollState()));
+        return () => cancelAnimationFrame(frame);
+    }, [messages, pendingTool, scrollToBottom, updateScrollState, waiting]);
+    return (
+        <div className="relative min-h-0 flex-1">
+            <div ref={listRef} className="thin-scrollbar h-full space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
+                {messages.map((item) => (
+                    <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
+                ))}
+                {pendingTool ? (
+                    <AgentPendingToolCard
+                        summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
+                        detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input }}
+                        theme={theme}
+                        onReject={onRejectTool}
+                        onApprove={onApproveTool}
+                    />
+                ) : null}
+                {(sending || waiting) && !streaming && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
+            </div>
+            {showScrollToBottom ? (
+                <Tooltip title="滚动到底部" placement="left">
+                    <Button
+                        type="text"
+                        shape="circle"
+                        aria-label="滚动到底部"
+                        className="!absolute bottom-3 left-1/2 z-10 !h-8 !w-8 !min-w-8 -translate-x-1/2 backdrop-blur transition hover:-translate-y-0.5"
+                        style={{ background: theme.toolbar.panel, border: `1px solid ${theme.node.stroke}`, color: theme.node.text }}
+                        icon={<ChevronDown className="size-4" />}
+                        onClick={() => scrollToBottom()}
+                    />
+                </Tooltip>
+            ) : null}
+        </div>
+    );
+}
+
+const AgentChatMessageRow = memo(function AgentChatMessageRow({ item, theme, user }: { item: AgentChatItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null }) {
+    return (
+        <div style={{ contentVisibility: "auto", containIntrinsicSize: "0 80px" }}>
+            <AgentChatMessage item={agentMessageToChatMessage(item)} theme={theme} user={user} />
+        </div>
+    );
+});
 
 function AgentUsageBar({ usage, theme }: { usage: AgentTokenUsage; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     return (
@@ -1170,7 +1190,7 @@ function agentAttachmentToChatAttachment(item: AgentAttachment): CanvasAgentChat
 function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
     const item = event.item;
     if (event.type === "item.completed" && item?.type === "error") return { role: "error", title: "错误", text: normalizeText(item.message), detail: item };
-    if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), streamId: event.type === "item.updated" ? item.id : undefined };
+    if (event.type === "item.completed" && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text) };
     if (event.type === "item.completed" && isMcpToolItem(item) && isReadTool(String(item?.tool || ""))) return { role: "tool", title: `${toolName(String(item?.tool || ""))}完成`, text: item?.error?.message || toolSummary(item), detail: toolDetail(item) };
     return null;
 }
@@ -1437,10 +1457,6 @@ function formatThreadTime(value?: number) {
 
 function createId() {
     return randomId();
-}
-
-function wait(ms: number) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -11,9 +11,11 @@ import type { AgentEmit } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
+type PendingDelta = { delta: string; params: CodexNotificationParams<"item/agentMessage/delta">; timer: ReturnType<typeof setTimeout> };
 
 const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
+const STREAM_UPDATE_INTERVAL_MS = 40;
 
 /** 封装 Codex app-server 的 JSON-RPC 通信与事件转换。 */
 export class CodexAppClient {
@@ -26,6 +28,7 @@ export class CodexAppClient {
     private pending = new Map<number, PendingRequest>();
     private activeTurns = new Map<string, PendingRequest>();
     private completedTurns = new Map<string, Error | null>();
+    private pendingDeltas = new Map<string, PendingDelta>();
 
     /** 保存 app-server 子进程和事件出口。 */
     private constructor(private child: ChildProcess, private emit: AgentEmit) {}
@@ -180,6 +183,7 @@ export class CodexAppClient {
         if (event.type === "item.completed") {
             const item = field(event, "item") as JsonRecord | undefined;
             const id = String(field(item, "id") || "");
+            this.flushDelta(id);
             const streamedText = this.textByItem.get(id);
             if (item?.type === "agent_message" && streamedText && !item.text) item.text = streamedText;
             if (id) this.textByItem.delete(id);
@@ -208,9 +212,27 @@ export class CodexAppClient {
     /** 合并并广播 Agent 文本增量。 */
     private emitDelta(params: CodexNotificationParams<"item/agentMessage/delta">) {
         const id = params.itemId;
-        const text = `${this.textByItem.get(id) || ""}${params.delta}`;
-        this.textByItem.set(id, text);
-        this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", text }, ...codexEventScope(params) });
+        this.textByItem.set(id, `${this.textByItem.get(id) || ""}${params.delta}`);
+        const pending = this.pendingDeltas.get(id);
+        if (pending) {
+            pending.delta += params.delta;
+            pending.params = params;
+            return;
+        }
+        this.pendingDeltas.set(id, {
+            delta: params.delta,
+            params,
+            timer: setTimeout(() => this.flushDelta(id), STREAM_UPDATE_INTERVAL_MS),
+        });
+    }
+
+    /** 合并短时间内的文本增量，减少 SSE 传输和前端渲染次数。 */
+    private flushDelta(id: string) {
+        const pending = this.pendingDeltas.get(id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pendingDeltas.delete(id);
+        if (pending.delta) this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", delta: pending.delta }, ...codexEventScope(pending.params) });
     }
 
     /** 自动回复 app-server 发起的授权或交互请求。 */
@@ -236,8 +258,11 @@ export class CodexAppClient {
     /** 拒绝进程退出时仍未完成的请求与 turn。 */
     private failAll(message: string) {
         [...this.pending.values(), ...this.activeTurns.values()].forEach((item) => item.reject(new Error(message)));
+        this.pendingDeltas.forEach((item) => clearTimeout(item.timer));
         this.pending.clear();
         this.activeTurns.clear();
+        this.pendingDeltas.clear();
+        this.textByItem.clear();
         this.currentThreadId = "";
         this.currentTurnId = "";
     }

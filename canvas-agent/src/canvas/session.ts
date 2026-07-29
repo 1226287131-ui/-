@@ -59,7 +59,9 @@ export class CanvasSession {
 
     /** 更新并广播 Codex 运行状态。 */
     setCodexState(patch: Partial<CodexState>) {
-        this.codexState = { ...this.codexState, ...patch };
+        const next = { ...this.codexState, ...patch };
+        if (next.busy === this.codexState.busy && next.threadId === this.codexState.threadId && next.turnId === this.codexState.turnId) return;
+        this.codexState = next;
         logger.debug("Codex state changed", this.codexState);
         this.emitAll("codex_state", this.codexState);
     }
