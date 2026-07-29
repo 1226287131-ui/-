@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
-import { ArrowUp, Brain, CheckCircle2, ChevronDown, CircleAlert, FilePenLine, FileText, ImagePlus, ListChecks, LoaderCircle, Search, Square, TerminalSquare, UserRound, Wrench, X, XCircle } from "lucide-react";
+import { ArrowUp, Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ImagePlus, ListChecks, LoaderCircle, Search, Square, TerminalSquare, UserRound, Wrench, X, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { isPlainEnterKey } from "@/lib/keyboard-event";
@@ -98,6 +98,8 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
 }
 
 export function AgentToolCard({ title, text, detail, theme }: { title: string; text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const plan = planDetail(detail);
+    if (plan) return <AgentPlanCard title={title} plan={plan} theme={theme} />;
     const state = toolCardState(title, text, detail);
     const view = userDetail(detail);
     const kind = String(objectField(detail, "kind") || "");
@@ -120,6 +122,34 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
             </summary>
             {view ? <AgentDetailBlock detail={view} theme={theme} /> : null}
         </details>
+    );
+}
+
+function AgentPlanCard({ title, plan, theme }: { title: string; plan: PlanDetail; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const completed = plan.tasks.filter((item) => item.status === "completed").length;
+    const state = planCardState(plan, completed);
+    return (
+        <div className="min-w-0 flex-1 rounded-xl border px-3 py-3 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
+            <div className="flex min-w-0 items-center gap-2.5">
+                <ListChecks className="size-4 shrink-0" style={{ color: state.color }} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+                <span className="shrink-0 text-[11px]" style={{ color: state.color }}>{state.label}</span>
+                <span className="shrink-0 text-[11px] tabular-nums" style={{ color: theme.node.muted }}>{completed}/{plan.tasks.length}</span>
+            </div>
+            {plan.explanation ? <div className="mt-1.5 text-xs leading-5" style={{ color: theme.node.muted }}>{plan.explanation}</div> : null}
+            <div className="mt-2.5 space-y-2 border-t pt-2.5" style={{ borderColor: theme.node.stroke }}>
+                {plan.tasks.map((item, index) => {
+                    const task = planTaskState(item.status, theme.node.muted);
+                    return (
+                        <div key={`${index}-${item.step}`} className="flex items-start gap-2 text-sm leading-5">
+                            <span className="mt-0.5 shrink-0" style={{ color: task.color }}>{task.icon}</span>
+                            <span className={`min-w-0 flex-1 ${item.status === "completed" ? "opacity-55" : item.status === "inProgress" ? "font-medium" : ""}`} style={{ color: item.status === "inProgress" ? theme.node.text : theme.node.muted }}>{item.step}</span>
+                            <span className="shrink-0 text-[11px]" style={{ color: task.color }}>{task.label}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
@@ -263,6 +293,8 @@ export function AgentPanelTabs<T extends string>({ value, items, theme, right, o
     );
 }
 
+type PlanTask = { step: string; status: string };
+type PlanDetail = { status: string; tasks: PlanTask[]; explanation?: string };
 type UserDetail = { kind?: string; status?: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }> };
 
 function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
@@ -346,6 +378,33 @@ function toolIcon(kind: string | undefined, fallback: ReactNode) {
     if (kind === "file") return <FilePenLine className="size-4" />;
     if (kind === "plan") return <ListChecks className="size-4" />;
     return fallback;
+}
+
+function planCardState(plan: PlanDetail, completed: number) {
+    if (plan.status === "failed") return { label: "执行失败", color: "#dc2626" };
+    if (["interrupted", "cancelled", "canceled"].includes(plan.status)) return { label: "已停止", color: "#d97706" };
+    if (completed === plan.tasks.length) return { label: "已完成", color: "#16a34a" };
+    if (plan.status === "finished") return { label: "已结束", color: "#2563eb" };
+    return { label: "进行中", color: "#d97706" };
+}
+
+function planTaskState(status: string, muted: string) {
+    if (status === "completed") return { label: "已完成", color: "#16a34a", icon: <CheckCircle2 className="size-3.5" /> };
+    if (status === "inProgress") return { label: "进行中", color: "#d97706", icon: <LoaderCircle className="size-3.5 animate-spin" /> };
+    return { label: "待处理", color: muted, icon: <Circle className="size-3.5" /> };
+}
+
+function planDetail(value: unknown): PlanDetail | null {
+    if (!value || typeof value !== "object" || objectField(value, "kind") !== "todo") return null;
+    const tasks = Array.isArray(objectField(value, "tasks"))
+        ? (objectField(value, "tasks") as unknown[]).flatMap((item) => {
+              const step = String(objectField(item, "step") || "").trim();
+              return step ? [{ step, status: String(objectField(item, "status") || "pending") }] : [];
+          })
+        : [];
+    if (!tasks.length) return null;
+    const explanation = String(objectField(value, "explanation") || "").trim();
+    return { status: String(objectField(value, "status") || "inProgress"), tasks, ...(explanation ? { explanation } : {}) };
 }
 
 function userDetail(value: unknown): UserDetail | null {

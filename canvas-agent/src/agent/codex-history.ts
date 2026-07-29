@@ -1,4 +1,5 @@
 import { field } from "../utils/value.js";
+import type { CodexPlanUpdate } from "./codex-protocol.js";
 
 type AgentHistoryMessage = { id: string; role: "user" | "assistant" | "tool" | "error"; title?: string; text: string; detail?: unknown; streamId?: string };
 
@@ -19,16 +20,24 @@ export function summarizeCodexThread(thread: unknown) {
 }
 
 /** 将 Codex turn items 转换为网页聊天历史。 */
-export function threadMessages(thread: unknown): AgentHistoryMessage[] {
+export function threadMessages(thread: unknown, planUpdates: CodexPlanUpdate[] = []): AgentHistoryMessage[] {
     const turns = arrayValue(field(thread, "turns"));
+    const plansByTurn = new Map(planUpdates.map((item) => [item.turnId, item]));
     const messages: AgentHistoryMessage[] = [];
     turns.forEach((turn, turnIndex) => {
+        const turnId = String(field(turn, "id") || turnIndex);
+        const planMessage = structuredPlanMessage(plansByTurn.get(turnId) || { threadId: "", turnId, explanation: stringOrNull(field(turn, "explanation")), plan: arrayValue(field(turn, "plan")) as CodexPlanUpdate["plan"], turnStatus: String(field(turn, "status") || "") });
+        let planAdded = false;
         arrayValue(field(turn, "items")).forEach((item, itemIndex) => {
             const type = String(field(item, "type") || "");
             const id = String(field(item, "id") || `${turnIndex}-${itemIndex}`);
             if (type === "userMessage") {
                 const text = displayUserText(userInputText(field(item, "content")));
                 if (text) messages.push({ id, role: "user", text });
+                if (planMessage && !planAdded) {
+                    messages.push(planMessage);
+                    planAdded = true;
+                }
             }
             if (type === "agentMessage") {
                 const text = String(field(item, "text") || "").trim();
@@ -62,8 +71,34 @@ export function threadMessages(thread: unknown): AgentHistoryMessage[] {
             if (type === "dynamicToolCall") messages.push({ id, role: "tool", title: "使用工具", text: "已完成工具操作", detail: { kind: "tool", status: field(item, "status") } });
             if (type === "collabToolCall") messages.push({ id, role: "tool", title: "协作处理", text: "已完成协作任务", detail: { kind: "tool", status: field(item, "status") } });
         });
+        if (planMessage && !planAdded) messages.push(planMessage);
     });
     return messages.filter((item) => item.text).slice(-120);
+}
+
+/** 将结构化任务计划转换为聊天进度卡片。 */
+function structuredPlanMessage(update: CodexPlanUpdate): AgentHistoryMessage | null {
+    const tasks = arrayValue(update.plan).flatMap((item) => {
+        const step = String(field(item, "step") || "").trim();
+        return step ? [{ step, status: String(field(item, "status") || "pending") }] : [];
+    });
+    if (!tasks.length) return null;
+    const completed = tasks.filter((item) => item.status === "completed").length;
+    return {
+        id: `plan-${update.turnId}`,
+        role: "tool",
+        title: "任务进度",
+        text: `已完成 ${completed}/${tasks.length} 项`,
+        detail: { kind: "todo", status: planStatus(tasks, update.turnStatus), tasks, explanation: update.explanation || "" },
+    };
+}
+
+/** 根据步骤和 turn 状态生成任务卡片状态。 */
+function planStatus(tasks: Array<{ status: string }>, turnStatus?: string) {
+    if (turnStatus === "failed") return "failed";
+    if (turnStatus === "interrupted") return "interrupted";
+    if (tasks.every((item) => item.status === "completed")) return "completed";
+    return turnStatus === "completed" ? "finished" : "inProgress";
 }
 
 /** 提取用户输入条目中的文本与附件占位信息。 */

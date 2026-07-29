@@ -47,7 +47,7 @@ export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?:
     const thread = await app.resumeThread(threadId, cwd);
     assertThreadWorkspace(thread, cwd);
     codexThreadId = String(field(thread, "id") || threadId);
-    return { thread, messages: threadMessages(thread) };
+    return { thread, messages: threadMessages(thread, app.planUpdates(threadId)) };
 }
 
 /** 查询当前工作空间中的 Codex 线程。 */
@@ -67,6 +67,7 @@ export async function listCodexThreads(emit: AgentEmit, options: { cwd: string; 
 
 /** 读取指定 Codex 线程及其聊天历史。 */
 export async function readCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
+    const app = await getCodexApp(emit);
     let thread: unknown;
     try {
         thread = await loadCodexThread(emit, threadId, cwd, !unmaterializedThreadIds.has(threadId));
@@ -75,7 +76,7 @@ export async function readCodexThread(emit: AgentEmit, threadId: string, cwd?: s
         unmaterializedThreadIds.add(threadId);
         thread = await loadCodexThread(emit, threadId, cwd, false);
     }
-    return { thread: summarizeCodexThread(thread), messages: threadMessages(thread) };
+    return { thread: summarizeCodexThread(thread), messages: threadMessages(thread, app.planUpdates(threadId)) };
 }
 
 /** 确认指定 Codex 线程属于当前工作空间。 */
@@ -88,6 +89,7 @@ export async function archiveCodexThread(emit: AgentEmit, threadId: string, cwd?
     const app = await getCodexApp(emit);
     await loadCodexThread(emit, threadId, cwd, false);
     await app.archiveThread(threadId);
+    app.clearPlanUpdates(threadId);
     unmaterializedThreadIds.delete(threadId);
 }
 

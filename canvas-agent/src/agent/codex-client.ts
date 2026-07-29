@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
-import type { CodexNotificationParams, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
+import type { CodexNotificationParams, CodexPlanUpdate, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
 import type { AgentEmit } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
@@ -30,6 +30,7 @@ export class CodexAppClient {
     private activeTurns = new Map<string, PendingRequest>();
     private completedTurns = new Map<string, Error | null>();
     private pendingDeltas = new Map<string, PendingDelta>();
+    private plansByTurn = new Map<string, CodexPlanUpdate>();
 
     /** 保存 app-server 子进程和事件出口。 */
     private constructor(private child: ChildProcess, private emit: AgentEmit) {}
@@ -89,12 +90,24 @@ export class CodexAppClient {
         return this.request("thread/archive", { threadId });
     }
 
+    /** 返回指定线程在当前进程中收到的最新任务计划。 */
+    planUpdates(threadId: string) {
+        return [...this.plansByTurn.values()].filter((item) => item.threadId === threadId);
+    }
+
+    /** 清理已归档线程的任务计划缓存。 */
+    clearPlanUpdates(threadId: string) {
+        this.plansByTurn.forEach((item, turnId) => {
+            if (item.threadId === threadId) this.plansByTurn.delete(turnId);
+        });
+    }
+
     /** 启动一个 Codex turn 并等待完成通知。 */
     async startTurn(threadId: string, prompt: string, images: string[], onTurn?: (turnId: string) => void) {
+        this.currentThreadId = threadId;
         const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), approvalPolicy: "never" });
         const turnId = turn.id;
         if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
-        this.currentThreadId = threadId;
         this.currentTurnId = turnId;
         onTurn?.(turnId);
         const completed = this.completedTurns.get(turnId);
@@ -174,6 +187,7 @@ export class CodexAppClient {
 
     /** 转换并广播 app-server 通知。 */
     private handleNotification(method: string, params: JsonRecord) {
+        if (!field(params, "threadId") && this.currentThreadId && (method === "turn/started" || method === "turn/completed" || method === "turn/plan/updated")) params = { ...params, threadId: this.currentThreadId };
         if (method === "item/agentMessage/delta") {
             const value = params as unknown as CodexNotificationParams<"item/agentMessage/delta">;
             this.textByItem.set(value.itemId, `${this.textByItem.get(value.itemId) || ""}${value.delta}`);
@@ -182,6 +196,12 @@ export class CodexAppClient {
         if (method === "item/plan/delta") return this.emitDelta("plan", params as unknown as CodexNotificationParams<"item/plan/delta">);
         if (method === "item/reasoning/summaryTextDelta") return this.emitDelta("reasoning", params as unknown as CodexNotificationParams<"item/reasoning/summaryTextDelta">);
         if (method === "item/commandExecution/outputDelta") return this.emitDelta("command_execution", params as unknown as CodexNotificationParams<"item/commandExecution/outputDelta">);
+        if (method === "turn/plan/updated") {
+            const value = params as unknown as CodexNotificationParams<"turn/plan/updated">;
+            const update: CodexPlanUpdate = { ...value, threadId: value.threadId || "" };
+            if (update.threadId && update.turnId) this.plansByTurn.set(update.turnId, update);
+            params = update as unknown as JsonRecord;
+        }
         if (method === "thread/tokenUsage/updated") {
             this.lastUsage = normalizeUsage(params as unknown as CodexNotificationParams<"thread/tokenUsage/updated">);
             this.emit("agent_event", { agent: "codex", type: "usage.updated", usage: this.lastUsage, ...codexEventScope(params) });
@@ -196,6 +216,12 @@ export class CodexAppClient {
             const streamedText = this.textByItem.get(id);
             if (item?.type === "agent_message" && streamedText && !item.text) item.text = streamedText;
             if (id) this.textByItem.delete(id);
+        }
+        if (event.type === "turn.completed") {
+            const turn = field(params, "turn");
+            const turnId = String(field(turn, "id") || field(params, "turnId") || "");
+            const plan = this.plansByTurn.get(turnId);
+            if (plan) this.plansByTurn.set(turnId, { ...plan, turnStatus: String(field(turn, "status") || "completed") });
         }
         if (event.type === "turn.completed") event.usage = this.lastUsage;
         this.emit("agent_event", { agent: "codex", ...event });
@@ -301,7 +327,8 @@ function normalizeCodexNotification(method: string, params: JsonRecord): AgentEv
     const scope = codexEventScope(params);
     if (method === "thread/started") return { type: "thread.started", ...scope };
     if (method === "turn/started") return { type: "turn.started", ...scope };
-    if (method === "turn/completed") return { type: "turn.completed", usage: null, duration_ms: field(field(params, "turn"), "durationMs"), ...scope };
+    if (method === "turn/completed") return { type: "turn.completed", status: field(field(params, "turn"), "status"), usage: null, duration_ms: field(field(params, "turn"), "durationMs"), ...scope };
+    if (method === "turn/plan/updated") return { type: "plan.updated", explanation: field(params, "explanation"), plan: field(params, "plan"), ...scope };
     if (method === "item/started") return { type: "item.started", item: normalizeItem(field(params, "item")), ...scope };
     if (method === "item/completed") return { type: "item.completed", item: normalizeItem(field(params, "item")), ...scope };
     if (method === "error") return { type: "error", message: field(field(params, "error"), "message"), ...scope };

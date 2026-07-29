@@ -39,6 +39,9 @@ type AgentEventPayload = {
     item?: AgentEventItem;
     error?: { message?: string };
     message?: string;
+    status?: string;
+    explanation?: unknown;
+    plan?: unknown;
     usage?: Record<string, unknown>;
     duration_ms?: number;
 };
@@ -65,7 +68,7 @@ type AgentEventItem = {
     action?: unknown;
     path?: unknown;
 };
-type AgentUserDetail = { kind: string; status: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }> };
+type AgentUserDetail = { kind: string; status: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }>; tasks?: Array<{ step: string; status: string }>; explanation?: string };
 
 type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
 type AgentWorkspace = { workspacePath: string; activeThreadId?: string };
@@ -651,6 +654,16 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text, detail: { ...activityDetail(message.detail, activityKind(item.type), "inProgress") } } : message)) });
     };
 
+    const finishPlanActivity = (turnId: string, status?: string) => {
+        const id = `plan-${turnId}`;
+        const currentMessages = useAgentStore.getState().messages;
+        const index = currentMessages.findIndex((message) => message.id === id);
+        if (index < 0) return;
+        const current = currentMessages[index];
+        const detail = activityDetail(current.detail, "todo", turnPlanStatus(current.detail, status));
+        setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, detail } : message)) });
+    };
+
     const handleAgentEvent = (event: AgentEventPayload) => {
         if (event.type === "usage.updated") setAgentState({ tokenUsage: eventUsage(event) });
         const log = formatAgentEventLog(event);
@@ -662,6 +675,11 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         }
         if (event.type === "item.updated" && event.item) {
             appendActivityDelta(event.item);
+            return;
+        }
+        if (event.type === "plan.updated" && event.turn_id) {
+            const plan = formatAgentPlan(event);
+            if (plan) upsertActivityMessage({ ...plan, id: `plan-${event.turn_id}` });
             return;
         }
         if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.id) {
@@ -678,7 +696,10 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             upsertActivityMessage({ ...activity, id: event.item.id });
             return;
         }
-        if (event.type === "turn.completed") setAgentState({ messages: useAgentStore.getState().messages.map((message) => (message.streamId ? { ...message, streamId: undefined } : message)) });
+        if (event.type === "turn.completed") {
+            if (event.turn_id) finishPlanActivity(event.turn_id, event.status);
+            setAgentState({ messages: useAgentStore.getState().messages.map((message) => (message.streamId ? { ...message, streamId: undefined } : message)) });
+        }
         const item = formatAgentEvent(event);
         if (item) addMessage(item);
     };
@@ -1296,6 +1317,33 @@ function formatAgentActivity(event: AgentEventPayload): Omit<AgentChatItem, "id"
     return null;
 }
 
+function formatAgentPlan(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
+    const tasks = planTasks(event.plan);
+    if (!tasks.length) return null;
+    const completed = tasks.filter((item) => item.status === "completed").length;
+    return {
+        role: "tool",
+        title: "任务进度",
+        text: `已完成 ${completed}/${tasks.length} 项`,
+        detail: { kind: "todo", status: completed === tasks.length ? "completed" : "inProgress", tasks, explanation: stringText(event.explanation) },
+    };
+}
+
+function planTasks(value: unknown) {
+    return (Array.isArray(value) ? value : []).flatMap((item) => {
+        const step = stringText(objectField(item, "step")).trim();
+        return step ? [{ step, status: stringText(objectField(item, "status")) || "pending" }] : [];
+    });
+}
+
+function turnPlanStatus(detail: unknown, turnStatus?: string) {
+    const tasks = planTasks(objectField(detail, "tasks"));
+    if (turnStatus === "failed") return "failed";
+    if (turnStatus === "interrupted") return "interrupted";
+    if (tasks.length && tasks.every((item) => item.status === "completed")) return "completed";
+    return turnStatus === "completed" ? "finished" : "inProgress";
+}
+
 function activityDeltaFallback(item: AgentEventItem, delta: string): AgentChatItem {
     if (item.type === "command_execution") return { id: item.id || createId(), role: "tool", title: "执行命令", text: activityPlaceholder(item.type), detail: { kind: "command", status: "inProgress", output: delta } };
     return { id: item.id || createId(), role: "tool", title: item.type === "plan" ? "执行计划" : "思考摘要", text: delta, detail: { kind: activityKind(item.type), status: "inProgress" } };
@@ -1315,7 +1363,7 @@ function activityKind(type?: string) {
 
 function activityDetail(value: unknown, kind: string, status: string): AgentUserDetail {
     const current = value && typeof value === "object" ? (value as Partial<AgentUserDetail>) : {};
-    return { kind, status, rows: current.rows, output: current.output, files: current.files };
+    return { kind, status, rows: current.rows, output: current.output, files: current.files, tasks: current.tasks, explanation: current.explanation };
 }
 
 function commandActivityDetail(item: AgentEventItem, status: string): AgentUserDetail {
@@ -1403,6 +1451,10 @@ function formatAgentEventLog(event: AgentEventPayload) {
     const item = event.item;
     if (event.type === "thread.started") return { title: "创建会话", text: shortId(event.thread_id) };
     if (event.type === "turn.started") return { title: "开始处理", text: shortId(event.turn_id) };
+    if (event.type === "plan.updated") {
+        const tasks = planTasks(event.plan);
+        return { title: "更新任务进度", text: `已完成 ${tasks.filter((item) => item.status === "completed").length}/${tasks.length} 项` };
+    }
     if (event.type === "turn.completed") return { title: "处理完成", text: turnSummary(event) };
     if (event.type === "turn.failed" || event.type === "error") return { title: "处理失败", text: event.message || event.error?.message || "未知错误" };
     if (event.type === "item.started" && isMcpToolItem(item)) return { title: "调用工具", text: toolName(String(item?.tool || "")) };
@@ -1537,7 +1589,8 @@ function routeName(path: string) {
 
 function workingActivity(item?: AgentChatItem) {
     const status = String(objectField(item?.detail, "status") || "");
-    const key = `${item?.id || "waiting"}-${status}`;
+    const output = stringText(objectField(item?.detail, "output"));
+    const key = `${item?.id || "waiting"}-${status}-${item?.text || ""}-${output.length}`;
     if (item?.role !== "tool") return { key, text: "正在思考..." };
     if (["inProgress", "in_progress", "running", "pending"].includes(status)) return { key, text: `${item.title || "工具操作"}正在进行...` };
     if (item.title === "读取画布") return { key, text: "画布已读取，Codex 正在整理结果..." };

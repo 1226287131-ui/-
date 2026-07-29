@@ -4,6 +4,8 @@ export type CodexThread = JsonRecord & { id: string; cwd: string; turns?: CodexT
 export type CodexTurn = JsonRecord & { id: string; error?: CodexTurnError | null; durationMs?: number | null };
 export type CodexTurnError = JsonRecord & { message: string };
 export type CodexItem = JsonRecord & { id: string; type: string; text?: string };
+export type CodexPlanStep = { step: string; status: "pending" | "inProgress" | "completed" };
+export type CodexPlanUpdate = { threadId: string; turnId: string; explanation?: string | null; plan: CodexPlanStep[]; turnStatus?: string };
 
 export type CodexTurnInput =
     | { type: "text"; text: string; text_elements: [] }
@@ -74,8 +76,9 @@ type TokenUsageBreakdown = {
 
 type CodexNotificationSpec = {
     "thread/started": { thread: CodexThread };
-    "turn/started": { threadId: string; turn: CodexTurn };
-    "turn/completed": { threadId: string; turn: CodexTurn };
+    "turn/started": { threadId?: string; turn: CodexTurn };
+    "turn/completed": { threadId?: string; turn: CodexTurn };
+    "turn/plan/updated": { threadId?: string; turnId: string; explanation?: string | null; plan: CodexPlanStep[] };
     "item/started": { threadId: string; turnId: string; item: CodexItem };
     "item/completed": { threadId: string; turnId: string; item: CodexItem };
     "item/agentMessage/delta": { threadId: string; turnId: string; itemId: string; delta: string };
