@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button } from "antd";
+import { Button, Image } from "antd";
 import { Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, UserRound, Wrench, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
@@ -240,12 +240,28 @@ function AgentUserAvatar({ user, theme }: { user: LocalUser | null; theme: (type
 }
 
 function AgentMessageAttachments({ attachments, alignRight }: { attachments: AgentChatAttachment[]; alignRight?: boolean }) {
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     return (
-        <div className={`mt-2 flex flex-wrap gap-2 ${alignRight ? "justify-end" : "justify-start"}`}>
-            {attachments.map((item) => (
-                <img key={item.id} src={item.url} alt={item.name} className="max-h-72 max-w-[280px] rounded-xl object-contain" />
-            ))}
-        </div>
+        <>
+            <div className={`mt-1.5 flex flex-wrap gap-1.5 ${alignRight ? "justify-end" : "justify-start"}`}>
+                {attachments.map((item) => (
+                    <img
+                        key={item.id}
+                        src={item.url}
+                        alt={item.name}
+                        title="点击查看大图"
+                        className="size-10 cursor-zoom-in rounded-lg object-cover"
+                        draggable={false}
+                        onClick={() => setPreviewUrl(item.url)}
+                    />
+                ))}
+            </div>
+            {previewUrl ? (
+                <div className="hidden">
+                    <Image src={previewUrl} alt="图片附件预览" preview={{ visible: true, src: previewUrl, onVisibleChange: (visible) => !visible && setPreviewUrl(null) }} />
+                </div>
+            ) : null}
+        </>
     );
 }
 

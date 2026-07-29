@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [优化] Agent 用户图片消息改为紧凑缩略图展示，并支持单击放大预览。
++ [修复] 修复 Agent 图片预览打开后在对话区域产生额外空行的问题。
 + [优化] Canvas Agent 内置 Codex CLI 升级至 0.145.0。
 + [修复] Canvas Agent 停止任务改为中断当前 Codex turn，避免终止整个 App Server 进程。
 + [新增] Canvas Agent 支持通过 `--debug` 输出详细日志并按日期保存到本地日志文件。
