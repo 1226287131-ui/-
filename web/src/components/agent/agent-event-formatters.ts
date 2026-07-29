@@ -475,14 +475,15 @@ export function normalizeHistoryMessages(messages: AgentChatItem[]) {
 }
 
 export function mergeHistoryAttachments(messages: AgentChatItem[], currentMessages: AgentChatItem[]) {
-    const currentUsers = currentMessages.filter((item) => item.role === "user").reverse();
-    let userIndex = 0;
+    const currentUsers = currentMessages.filter((item) => item.role === "user" && item.attachments?.length).reverse();
     return [...messages]
         .reverse()
         .map((item) => {
             if (item.role !== "user") return item;
-            const current = currentUsers[userIndex++];
-            return current?.attachments?.length ? { ...item, id: current.id, text: current.text, attachments: current.attachments } : item;
+            const index = currentUsers.findIndex((current) => current.text === item.text || current.historyText === item.text);
+            if (index < 0) return item;
+            const current = currentUsers.splice(index, 1)[0];
+            return { ...item, id: current.id, text: current.text, historyText: current.historyText, attachments: current.attachments };
         })
         .reverse();
 }

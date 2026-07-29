@@ -9,6 +9,7 @@ import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { readImageMeta } from "@/lib/image-utils";
 import { randomId } from "@/lib/utils";
 import { uploadImage } from "@/services/image-storage";
+import { deleteAgentThreadMessages, readAgentUserMessages, saveAgentUserMessage } from "@/services/agent-chat-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentCanvasContext, type AgentChatItem, type AgentPendingToolCall, type AgentThreadSummary } from "@/stores/use-agent-store";
@@ -123,12 +124,14 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         try {
             const currentThreadId = useAgentStore.getState().activeThreadId;
             const currentThreadRequest = currentThreadId && !skipHistory ? fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(currentThreadId)}`).catch(() => null) : null;
+            const storedMessagesRequest = currentThreadId && !skipHistory ? readAgentUserMessages(currentThreadId) : null;
             const data = await fetchAgentJson<AgentThreadsResponse>(endpoint, token, `/agent/codex/threads`);
             let nextMessages: AgentChatItem[] = [];
             if (currentThreadId && !skipHistory) {
                 let thread = await currentThreadRequest;
                 thread ||= await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(currentThreadId)}`);
-                nextMessages = mergeHistoryAttachments(normalizeHistoryMessages(thread.messages || []), useAgentStore.getState().messages);
+                const storedMessages = (await storedMessagesRequest) || [];
+                nextMessages = mergeHistoryAttachments(normalizeHistoryMessages(thread.messages || []), [...storedMessages, ...useAgentStore.getState().messages]);
             }
             if (sequence !== loadThreadsSequenceRef.current) return;
             setAgentState({ threads: data.data || [], workspacePath: data.workspace?.workspacePath || "", ...(skipHistory ? {} : { messages: nextMessages }) });
@@ -282,6 +285,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         }
         setAgentState({ activity: "发送中", sending: true });
         const messageId = createId();
+        const userText = text || `发送了 ${files.length} 张图片`;
         let threadId = useAgentStore.getState().activeThreadId;
         try {
             if (!threadId) {
@@ -290,14 +294,15 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 if (!threadId) throw new Error("新建对话失败");
                 setAgentState({ activeThreadId: threadId, messages: [], tokenUsage: null });
             }
-            addMessage({ id: messageId, role: "user", text: text || "发送了图片", attachments: files });
+            addMessage({ id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files });
+            if (files.length) void saveAgentUserMessage(threadId, { id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files }).catch(() => undefined);
             addEventLog("发送任务", `${compactText(text) || "仅附件"}${files.length ? ` · 附件 ${files.length}` : ""}`);
             const data = await fetchAgentJson<{ threadId?: string }>(endpoint, token, "/agent/codex/turn", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                     prompt: requestPrompt,
-                    messageText: text || `发送了 ${files.length} 张图片`,
+                    messageText: userText,
                     messageId,
                     clientId: clientIdRef.current,
                     threadId,
@@ -541,8 +546,13 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         if (!connected || !threadId || sending || waiting) return;
         setAgentState({ loadingThreads: true });
         try {
-            const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
-            setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), tokenUsage: null, activeTab: "chat", activity: "已恢复会话" });
+            const current = useAgentStore.getState();
+            const [data, storedMessages] = await Promise.all([
+                fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }),
+                readAgentUserMessages(threadId),
+            ]);
+            const localMessages = current.activeThreadId === threadId ? current.messages : [];
+            setAgentState({ activeThreadId: data.thread?.id || threadId, messages: mergeHistoryAttachments(normalizeHistoryMessages(data.messages || []), [...storedMessages, ...localMessages]), tokenUsage: null, activeTab: "chat", activity: "已恢复会话" });
         } catch (error) {
             addEventLog("恢复对话失败", error);
             message.error(error instanceof Error ? error.message : "恢复对话失败");
@@ -556,6 +566,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         setAgentState({ loadingThreads: true });
         try {
             await Promise.all(threadIds.map((threadId) => fetchAgentJson(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/delete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) })));
+            void deleteAgentThreadMessages(threadIds).catch(() => undefined);
             const current = useAgentStore.getState();
             const deleted = new Set(threadIds);
             setAgentState({

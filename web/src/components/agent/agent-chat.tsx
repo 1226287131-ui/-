@@ -54,7 +54,7 @@ export function AgentChatTimeline({
     }, [messages, pendingTool, scrollToBottom, updateScrollState, waiting]);
     return (
         <div className="relative min-h-0 flex-1">
-            <div ref={listRef} className="thin-scrollbar h-full space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
+            <div ref={listRef} className="thin-scrollbar h-full select-text space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
                 {messages.map((item) => (
                     isPlanMessage(item) ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
                 ))}
@@ -128,4 +128,3 @@ function UsageNumber({ label, value, color }: { label: string; value: number; co
         </span>
     );
 }
-

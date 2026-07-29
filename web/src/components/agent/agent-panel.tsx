@@ -54,6 +54,7 @@ export function AgentPanel() {
         >
             <motion.aside
                 className="relative flex h-full shrink-0 flex-col border-l"
+                data-canvas-shortcuts-ignore
                 initial={{ x: 48 }}
                 animate={{ x: panelClosing ? 28 : 0 }}
                 transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }}
