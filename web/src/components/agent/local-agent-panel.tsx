@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { App, Button } from "antd";
-import { History, MessageSquare, PlugZap, Plus, Terminal } from "lucide-react";
+import { App, Button, Tooltip } from "antd";
+import { Bot, History, MessageSquare, PanelRightClose, PlugZap, Plus, Terminal } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageMetadata } from "@/lib/canvas/canvas-node-factory";
@@ -105,6 +105,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         })),
     );
     const setAgentState = useAgentStore((state) => state.setAgentState);
+    const closePanel = useAgentStore((state) => state.closePanel);
     const pushMessage = useAgentStore((state) => state.addMessage);
     const pushEventLog = useAgentStore((state) => state.addEventLog);
     const clearEventLogs = useAgentStore((state) => state.clearEventLogs);
@@ -783,6 +784,14 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             <AgentPanelTabs
                 value={activeTab}
                 theme={theme}
+                leading={
+                    <div className="flex items-center gap-2 pr-1">
+                        <span className="grid size-8 place-items-center">
+                            <Bot className="size-4" />
+                        </span>
+                        <div className="text-base font-semibold leading-5">Agent</div>
+                    </div>
+                }
                 items={[
                     { value: "setup", label: "连接", icon: <PlugZap className="size-3.5" /> },
                     { value: "chat", label: "对话", icon: <MessageSquare className="size-3.5" /> },
@@ -798,6 +807,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                         <Button size="small" type="text" disabled={!connected || loadingThreads || sending || waiting} icon={<Plus className="size-3.5" />} onClick={startNewThread}>
                             新对话
                         </Button>
+                        <Tooltip title="收起对话">
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.muted }} icon={<PanelRightClose className="size-4" />} onClick={closePanel} />
+                        </Tooltip>
                     </>
                 }
             />

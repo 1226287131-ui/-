@@ -1,6 +1,4 @@
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Bot, PanelRightClose } from "lucide-react";
-import { Button, Tooltip } from "antd";
 import { motion } from "motion/react";
 
 import { LocalAgentPanel } from "./local-agent-panel";
@@ -18,9 +16,6 @@ export function AgentPanel() {
     const panelOpen = useAgentStore((state) => state.panelOpen);
     const panelClosing = useAgentStore((state) => state.panelClosing);
     const setAgentState = useAgentStore((state) => state.setAgentState);
-    const closePanel = useAgentStore((state) => state.closePanel);
-
-
     const startResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         const startX = event.clientX;
@@ -60,22 +55,6 @@ export function AgentPanel() {
                 style={{ width, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             >
                 <button type="button" className="absolute inset-y-0 left-0 z-40 w-4 -translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label="调整右侧面板宽度" />
-                <header className="flex h-14 shrink-0 items-center justify-between border-b px-4" style={{ borderColor: theme.node.stroke }}>
-                    <div className="flex min-w-0 items-center gap-2">
-                        <span className="grid size-8 place-items-center rounded-lg">
-                            <Bot className="size-4" />
-                        </span>
-                        <div className="min-w-0">
-                            <div className="text-base font-semibold leading-5">Agent</div>
-                            <div className="truncate text-xs" style={{ color: theme.node.muted }}>全站助手</div>
-                        </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                        <Tooltip title="收起对话">
-                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.muted }} icon={<PanelRightClose className="size-4" />} onClick={closePanel} />
-                        </Tooltip>
-                    </div>
-                </header>
                 <LocalAgentPanel embedded />
             </motion.aside>
         </motion.div>
