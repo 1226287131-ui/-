@@ -14,6 +14,7 @@ let codexQueue: Promise<unknown> = Promise.resolve();
 let codexApp: CodexAppClient | null = null;
 let codexAppStart: Promise<CodexAppClient> | null = null;
 let codexThreadId = "";
+const unmaterializedThreadIds = new Set<string>();
 
 export { summarizeCodexThread } from "./codex-history.js";
 
@@ -35,6 +36,7 @@ export async function startCodexThread(emit: AgentEmit, cwd?: string) {
     const app = await getCodexApp(emit);
     const thread = await app.startThread(cwd);
     codexThreadId = String(field(thread, "id") || "");
+    if (codexThreadId) unmaterializedThreadIds.add(codexThreadId);
     return thread;
 }
 
@@ -65,7 +67,14 @@ export async function listCodexThreads(emit: AgentEmit, options: { cwd: string; 
 
 /** 读取指定 Codex 线程及其聊天历史。 */
 export async function readCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
-    const thread = await loadCodexThread(emit, threadId, cwd, true);
+    let thread: unknown;
+    try {
+        thread = await loadCodexThread(emit, threadId, cwd, !unmaterializedThreadIds.has(threadId));
+    } catch (error) {
+        if (!/not materialized yet.*includeTurns/i.test(errorMessage(error))) throw error;
+        unmaterializedThreadIds.add(threadId);
+        thread = await loadCodexThread(emit, threadId, cwd, false);
+    }
     return { thread: summarizeCodexThread(thread), messages: threadMessages(thread) };
 }
 
@@ -79,6 +88,7 @@ export async function archiveCodexThread(emit: AgentEmit, threadId: string, cwd?
     const app = await getCodexApp(emit);
     await loadCodexThread(emit, threadId, cwd, false);
     await app.archiveThread(threadId);
+    unmaterializedThreadIds.delete(threadId);
 }
 
 /** 判断线程异常是否允许自动新建线程后重试。 */
@@ -95,6 +105,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
         const app = await getCodexApp(options.appEmit || emit);
         let threadId = await ensureCodexThread(app, options, emit);
         options.onThread?.(threadId);
+        unmaterializedThreadIds.delete(threadId);
         try {
             await app.startTurn(threadId, prompt, files, options.onTurn);
         } catch (error) {
@@ -103,6 +114,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
             codexThreadId = "";
             threadId = await ensureCodexThread(app, { cwd: options.cwd }, emit);
             options.onThread?.(threadId);
+            unmaterializedThreadIds.delete(threadId);
             await app.startTurn(threadId, prompt, files, options.onTurn);
         }
     } catch (error) {
@@ -133,6 +145,7 @@ async function ensureCodexThread(app: CodexAppClient, options: CodexRunOptions, 
     if (!codexThreadId) {
         const thread = await app.startThread(options.cwd);
         codexThreadId = String(field(thread, "id") || "");
+        if (codexThreadId) unmaterializedThreadIds.add(codexThreadId);
     }
     return codexThreadId;
 }

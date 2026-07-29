@@ -79,6 +79,9 @@ type CodexNotificationSpec = {
     "item/started": { threadId: string; turnId: string; item: CodexItem };
     "item/completed": { threadId: string; turnId: string; item: CodexItem };
     "item/agentMessage/delta": { threadId: string; turnId: string; itemId: string; delta: string };
+    "item/plan/delta": { threadId: string; turnId: string; itemId: string; delta: string };
+    "item/reasoning/summaryTextDelta": { threadId: string; turnId: string; itemId: string; delta: string; summaryIndex: number };
+    "item/commandExecution/outputDelta": { threadId: string; turnId: string; itemId: string; delta: string };
     "thread/tokenUsage/updated": { threadId: string; turnId: string; tokenUsage: { last: TokenUsageBreakdown } };
     error: { threadId: string; turnId: string; error: CodexTurnError; willRetry: boolean };
 };

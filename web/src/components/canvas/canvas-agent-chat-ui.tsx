@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
-import { ArrowUp, CheckCircle2, CircleAlert, ImagePlus, LoaderCircle, Square, UserRound, Wrench, X, XCircle } from "lucide-react";
+import { ArrowUp, Brain, CheckCircle2, ChevronDown, CircleAlert, FilePenLine, FileText, ImagePlus, ListChecks, LoaderCircle, Search, Square, TerminalSquare, UserRound, Wrench, X, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { isPlainEnterKey } from "@/lib/keyboard-event";
@@ -19,8 +19,6 @@ export type CanvasAgentChatMessage = {
     /** Present while the message is actively streaming; cleared on completion. */
     streamId?: string;
 };
-
-const WORKING_TEXT = "working...";
 
 export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveTool }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
     const isUser = item.role === "user";
@@ -66,38 +64,30 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
 }
 
 export function AgentPendingToolCard({ summary, detail, theme, onReject, onApprove }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onReject?: () => void; onApprove?: () => void }) {
+    const view = userDetail(detail);
     return (
         <div className="flex items-start gap-3">
             <AgentAvatar theme={theme} />
-            <div className="min-w-0 flex-1 rounded-xl border p-4" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
-                <details>
-                    <summary className="cursor-pointer list-none">
-                        <div className="flex items-start gap-3">
-                            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border" style={{ borderColor: "rgba(217,119,6,.24)", color: "#d97706", background: "rgba(217,119,6,.04)" }}>
-                                <CircleAlert className="size-4" />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
-                                    <span>确认工具调用</span>
-                                    <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: "rgba(217,119,6,.22)", color: "#d97706", background: "rgba(217,119,6,.04)" }}>
-                                        等待确认
-                                    </span>
-                                    {detail ? <span className="ml-auto text-xs font-normal" style={{ color: theme.node.muted }}>详情</span> : null}
-                                </div>
-                                <div className="mt-2 text-sm leading-6" style={{ color: theme.node.text }}>
-                                    {summary}
-                                </div>
+            <div className="min-w-0 flex-1 rounded-xl border px-3 py-3" style={{ borderColor: "rgba(217,119,6,.28)", background: "rgba(217,119,6,.025)", color: theme.node.text }}>
+                <details className="group">
+                    <summary className={`flex list-none items-start gap-2.5 ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
+                        <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-sm font-medium leading-5">
+                                <span>等待确认</span>
+                                {view ? <ChevronDown className="ml-auto size-3.5 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
                             </div>
+                            <div className="mt-1 text-sm leading-5" style={{ color: theme.node.muted }}>{summary}</div>
                         </div>
                     </summary>
-                    {detail ? <AgentDetailBlock detail={detail} theme={theme} /> : null}
+                    {view ? <AgentDetailBlock detail={view} theme={theme} /> : null}
                 </details>
                 {onReject || onApprove ? (
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                        <Button danger className="!h-9" icon={<XCircle className="size-4" />} onClick={() => onReject?.()}>
+                    <div className="mt-3 flex justify-end gap-2 border-t pt-3" style={{ borderColor: theme.node.stroke }}>
+                        <Button danger type="text" className="!h-8" icon={<XCircle className="size-3.5" />} onClick={() => onReject?.()}>
                             拒绝执行
                         </Button>
-                        <Button className="!h-9" icon={<CheckCircle2 className="size-4" />} style={{ borderColor: "rgba(22,163,74,.42)", color: "#16a34a", background: "transparent" }} onClick={() => onApprove?.()}>
+                        <Button type="text" className="!h-8" icon={<CheckCircle2 className="size-3.5" />} style={{ color: "#16a34a" }} onClick={() => onApprove?.()}>
                             批准执行
                         </Button>
                     </div>
@@ -109,48 +99,57 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
 
 export function AgentToolCard({ title, text, detail, theme }: { title: string; text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     const state = toolCardState(title, text, detail);
+    const view = userDetail(detail);
+    const kind = String(objectField(detail, "kind") || "");
     return (
-        <details className="min-w-0 flex-1 rounded-xl border px-4 py-3.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
-            <summary className="cursor-pointer list-none">
-                <div className="flex items-start gap-3">
-                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border" style={{ borderColor: state.softBorder, color: state.color, background: state.softBg }}>
-                        {state.icon}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
-                            <span className="min-w-0 truncate">{title}</span>
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium" style={{ borderColor: state.softBorder, color: state.color, background: state.softBg }}>
-                                {state.label}
-                            </span>
-                            {detail ? <span className="ml-auto text-xs font-normal" style={{ color: theme.node.muted }}>详情</span> : null}
-                        </div>
-                        <div className="mt-2 text-sm leading-6" style={{ color: state.isError ? state.color : theme.node.muted }}>
-                            {text}
-                        </div>
+        <details className="group min-w-0 flex-1 rounded-xl border px-3 py-2.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
+            <summary className={`flex list-none items-start gap-2.5 ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
+                <span className="mt-0.5 shrink-0" style={{ color: state.color }}>{toolIcon(kind, state.icon)}</span>
+                <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-5">
+                        <span className="min-w-0 truncate">{title}</span>
+                        <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-normal" style={{ color: state.color }}>
+                            {state.label}
+                        </span>
+                        {view ? <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
+                    </div>
+                    <div className={`mt-1 whitespace-pre-wrap break-words text-sm leading-5 ${kind === "command" ? "font-mono text-[12px]" : ""}`} style={{ color: state.isError ? state.color : theme.node.muted }}>
+                        {text}
                     </div>
                 </div>
             </summary>
-            {detail ? <AgentDetailBlock detail={detail} theme={theme} /> : null}
+            {view ? <AgentDetailBlock detail={view} theme={theme} /> : null}
         </details>
     );
 }
 
-export function AgentWorkingMessage({ theme }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
-    const [length, setLength] = useState(1);
+export function AgentWorkingMessage({ text, activityKey, theme }: { text: string; activityKey: string; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const [elapsed, setElapsed] = useState(0);
     useEffect(() => {
-        const timer = window.setInterval(() => setLength((value) => (value >= WORKING_TEXT.length + 4 ? 1 : value + 1)), 120);
+        const startedAt = Date.now();
+        setElapsed(0);
+        const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
         return () => window.clearInterval(timer);
-    }, [setLength]);
+    }, [activityKey]);
     return (
-        <div className="flex items-start gap-2.5">
+        <div className="flex items-start gap-3">
             <AgentAvatar theme={theme} />
-            <div className="min-w-0 max-w-[82%]">
-                <div className="font-mono text-sm" style={{ color: theme.node.muted }} aria-label={WORKING_TEXT}>
-                    <span className="inline-block w-[76px]">{WORKING_TEXT.slice(0, Math.min(length, WORKING_TEXT.length))}</span>
+            <div className="min-w-0 flex-1 py-1" aria-live="polite">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: theme.node.muted }}>
+                    <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+                    <span className="min-w-0">{text}</span>
+                    {elapsed >= 5 ? <span className="shrink-0 text-[11px] tabular-nums opacity-60">{waitingTime(elapsed)}</span> : null}
                 </div>
+                {elapsed >= 30 ? <div className="mt-1 text-xs leading-5 opacity-65" style={{ color: theme.node.muted }}>响应时间较长，但任务仍在运行。可以继续等待，或点击输入框右侧的停止按钮结束本轮。</div> : null}
             </div>
         </div>
     );
+}
+
+function waitingTime(seconds: number) {
+    if (seconds < 60) return `已等待 ${seconds} 秒`;
+    const minutes = Math.floor(seconds / 60);
+    return `已等待 ${minutes} 分 ${seconds % 60} 秒`;
 }
 
 export function AgentChatComposer({
@@ -264,11 +263,40 @@ export function AgentPanelTabs<T extends string>({ value, items, theme, right, o
     );
 }
 
-function AgentDetailBlock({ detail, theme }: { detail: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+type UserDetail = { kind?: string; status?: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }> };
+
+function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     return (
-        <pre className="thin-scrollbar mt-3 max-h-64 overflow-auto rounded-lg border p-3 text-[11px] leading-4" style={{ borderColor: theme.node.stroke, background: theme.toolbar.panel, color: theme.node.muted }}>
-            {JSON.stringify(detail, null, 2)}
-        </pre>
+        <div className="mt-3 space-y-2.5 border-t pt-3 text-xs" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+            {detail.rows?.length ? (
+                <dl className="space-y-1.5">
+                    {detail.rows.map((row) => (
+                        <div key={`${row.label}-${row.value}`} className="grid grid-cols-[64px_minmax(0,1fr)] gap-2">
+                            <dt className="opacity-60">{row.label}</dt>
+                            <dd className="min-w-0 break-words" style={{ color: theme.node.text }}>{row.value}</dd>
+                        </div>
+                    ))}
+                </dl>
+            ) : null}
+            {detail.files?.length ? (
+                <div className="space-y-1.5">
+                    <div className="opacity-60">涉及文件</div>
+                    {detail.files.map((file) => (
+                        <div key={`${file.action}-${file.path}`} className="flex items-start gap-2">
+                            <FileText className="mt-0.5 size-3.5 shrink-0" />
+                            <span className="min-w-0 flex-1 break-all" style={{ color: theme.node.text }}>{file.path}</span>
+                            {file.action ? <span className="shrink-0 opacity-60">{file.action}</span> : null}
+                        </div>
+                    ))}
+                </div>
+            ) : null}
+            {detail.output ? (
+                <div className="space-y-1.5">
+                    <div className="opacity-60">{detail.status === "failed" || detail.status === "error" ? "错误信息" : "运行输出"}</div>
+                    <pre className="thin-scrollbar max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg px-3 py-2 font-mono text-[11px] leading-4" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{detail.output}</pre>
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -302,19 +330,53 @@ function AgentMessageAttachments({ attachments }: { attachments: CanvasAgentChat
 function toolCardState(title: string, text: string, detail?: unknown) {
     const raw = `${title} ${text} ${normalizeText(objectField(detail, "error"))}`;
     const lower = raw.toLowerCase();
-    const tool = String(objectField(detail, "name") || objectField(detail, "tool") || "");
-    if (objectField(detail, "status") === "noop" || /未生效|无需|没有找到|没有.*可|已存在/.test(raw)) return { label: "未生效", color: "#d97706", softBorder: "rgba(217,119,6,.22)", softBg: "rgba(217,119,6,.04)", icon: <CircleAlert className="size-4" />, isError: false };
-    if (/拒绝|取消/.test(raw) || lower.includes("rejected")) return { label: "拒绝执行", color: "#dc2626", softBorder: "rgba(220,38,38,.20)", softBg: "rgba(220,38,38,.04)", icon: <XCircle className="size-4" />, isError: true };
-    if (/失败|错误/.test(raw) || lower.includes("failed") || lower.includes("error")) return { label: "执行失败", color: "#dc2626", softBorder: "rgba(220,38,38,.20)", softBg: "rgba(220,38,38,.04)", icon: <XCircle className="size-4" />, isError: true };
-    if (/完成|成功/.test(raw) || lower.includes("completed") || lower.includes("succeeded")) return { label: tool === "canvas_apply_ops" || /画布操作/.test(title) ? "已批准执行" : "工具完成", color: "#16a34a", softBorder: "rgba(22,163,74,.20)", softBg: "rgba(22,163,74,.04)", icon: <CheckCircle2 className="size-4" />, isError: false };
-    return { label: "工具调用", color: "#2563eb", softBorder: "rgba(37,99,235,.20)", softBg: "rgba(37,99,235,.04)", icon: <Wrench className="size-4" />, isError: false };
+    const status = String(objectField(detail, "status") || "").toLowerCase();
+    if (status === "noop" || /未生效|无需|没有找到|没有.*可|已存在/.test(raw)) return { label: "未生效", color: "#d97706", icon: <CircleAlert className="size-4" />, isError: false };
+    if (["declined", "rejected", "cancelled", "canceled"].includes(status) || /拒绝|取消/.test(raw)) return { label: "已取消", color: "#dc2626", icon: <XCircle className="size-4" />, isError: true };
+    if (["failed", "error"].includes(status) || /失败|错误/.test(raw) || lower.includes("failed") || lower.includes("error")) return { label: "执行失败", color: "#dc2626", icon: <XCircle className="size-4" />, isError: true };
+    if (["inprogress", "in_progress", "running", "started", "pending"].includes(status)) return { label: "进行中", color: "#d97706", icon: <LoaderCircle className="size-4 animate-spin" />, isError: false };
+    if (["completed", "succeeded", "success"].includes(status) || /完成|成功/.test(raw)) return { label: "已完成", color: "#16a34a", icon: <CheckCircle2 className="size-4" />, isError: false };
+    return { label: "已记录", color: "#2563eb", icon: <Wrench className="size-4" />, isError: false };
+}
+
+function toolIcon(kind: string | undefined, fallback: ReactNode) {
+    if (kind === "reasoning") return <Brain className="size-4" />;
+    if (kind === "command") return <TerminalSquare className="size-4" />;
+    if (kind === "search") return <Search className="size-4" />;
+    if (kind === "file") return <FilePenLine className="size-4" />;
+    if (kind === "plan") return <ListChecks className="size-4" />;
+    return fallback;
+}
+
+function userDetail(value: unknown): UserDetail | null {
+    if (!value || typeof value !== "object") return null;
+    const detail = value as Record<string, unknown>;
+    const rows = Array.isArray(detail.rows)
+        ? detail.rows.flatMap((row) => {
+              if (!row || typeof row !== "object") return [];
+              const label = String((row as Record<string, unknown>).label || "");
+              const value = String((row as Record<string, unknown>).value || "");
+              return label && value ? [{ label, value }] : [];
+          })
+        : [];
+    const files = Array.isArray(detail.files)
+        ? detail.files.flatMap((file) => {
+              if (!file || typeof file !== "object") return [];
+              const path = String((file as Record<string, unknown>).path || "");
+              return path ? [{ path, action: String((file as Record<string, unknown>).action || "") || undefined }] : [];
+          })
+        : [];
+    const error = objectField(detail.error, "message");
+    const output = typeof detail.output === "string" ? detail.output.trim() : typeof error === "string" ? error : "";
+    if (!rows.length && !files.length && !output) return null;
+    return { kind: typeof detail.kind === "string" ? detail.kind : undefined, status: typeof detail.status === "string" ? detail.status : undefined, rows, files, output };
 }
 
 function normalizeText(value: unknown) {
     if (typeof value === "string") return value.trim();
     if (value instanceof Error) return value.message;
     if (value == null) return "";
-    return JSON.stringify(value, null, 2);
+    return String(objectField(value, "message") || "");
 }
 
 function objectField(value: unknown, key: string) {

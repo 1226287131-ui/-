@@ -42,7 +42,30 @@ type AgentEventPayload = {
     usage?: Record<string, unknown>;
     duration_ms?: number;
 };
-type AgentEventItem = { id?: string; type?: string; text?: unknown; delta?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
+type AgentEventItem = {
+    id?: string;
+    type?: string;
+    text?: unknown;
+    delta?: unknown;
+    message?: unknown;
+    server?: string;
+    tool?: string;
+    status?: string;
+    arguments?: unknown;
+    result?: unknown;
+    error?: { message?: string };
+    command?: unknown;
+    cwd?: unknown;
+    aggregatedOutput?: unknown;
+    exitCode?: unknown;
+    durationMs?: unknown;
+    changes?: unknown;
+    summary?: unknown;
+    query?: unknown;
+    action?: unknown;
+    path?: unknown;
+};
+type AgentUserDetail = { kind: string; status: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }> };
 
 type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
 type AgentWorkspace = { workspacePath: string; activeThreadId?: string };
@@ -190,11 +213,11 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         source.addEventListener("workspace_changed", (event) => {
             const data = parseEventData<AgentWorkspaceEvent>(event);
             if (!data) return;
-            enqueueEvent(() => {
+            enqueueEvent(async () => {
                 const nextThreadId = data.activeThreadId ?? data.threadId ?? "";
                 pendingToolRef.current = null;
                 setAgentState({ activeThreadId: nextThreadId, messages: [], tokenUsage: null, pendingTool: null });
-                void loadThreads(Boolean(data.emptyThread));
+                await loadThreads(Boolean(data.emptyThread));
             });
         });
         source.addEventListener("chat_message", (event) => {
@@ -371,10 +394,10 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 const result = await runSiteTool(payload.name, payload.input || {}, navigate, { canvasSnapshot: canvasContextRef.current?.snapshot || null });
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
                 addEventLog(`${toolName(payload.name)}完成`, result, result);
-                addMessage({ role: "tool", title: `${toolName(payload.name)}完成`, text: siteToolSummary(payload.name, result), detail: { requestId: payload.requestId, name: payload.name, input: payload.input, result } });
+                addMessage({ role: "tool", title: toolName(payload.name), text: siteToolSummary(payload.name, result), detail: toolCallDetail(payload.name, payload.input, "completed") });
             } catch (error) {
                 const message = error instanceof Error ? error.message : "工具执行失败";
-                addMessage({ role: "tool", title: "工具失败", text: message, detail: payload });
+                addMessage({ role: "tool", title: toolName(payload.name), text: message, detail: toolCallDetail(payload.name, payload.input, "failed", message) });
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: message });
             }
             return;
@@ -408,13 +431,13 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             addEventLog(`${toolName(payload.name)}完成`, result, result);
             addMessage({
                 role: "tool",
-                title: `${toolName(payload.name)}完成`,
-                text: appliedOps.length ? summarizeCanvasAgentOps(appliedOps) || "画布操作" : payload.name === "site_navigate" ? `已跳转到 ${input.path || "/"}` : "已完成",
-                detail: { requestId: payload.requestId, name: payload.name, input, result },
+                title: toolName(payload.name),
+                text: appliedOps.length ? summarizeCanvasAgentOps(appliedOps) || "已完成画布操作" : payload.name === "site_navigate" ? `已打开${routeName(input.path || "/")}` : "已完成",
+                detail: toolCallDetail(payload.name, input, "completed"),
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : "画布操作失败";
-            addMessage({ role: "tool", title: "工具失败", text: message, detail: payload });
+            addMessage({ role: "tool", title: toolName(payload.name), text: message, detail: toolCallDetail(payload.name, payload.input, "failed", message) });
             await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: message });
         }
     };
@@ -422,7 +445,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     const rejectPendingTool = async () => {
         if (!pendingTool) return;
         await postToolResult(endpoint, token, clientIdRef.current, { requestId: pendingTool.requestId, error: "用户取消了画布工具调用" });
-        addMessage({ role: "tool", title: "拒绝执行", text: toolName(pendingTool.name), detail: { requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input } });
+        addMessage({ role: "tool", title: toolName(pendingTool.name), text: "用户已取消本次操作", detail: toolCallDetail(pendingTool.name, pendingTool.input, "declined") });
         pendingToolRef.current = null;
         setAgentState({ pendingTool: null });
     };
@@ -594,6 +617,40 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: value, raw });
     };
 
+    const upsertActivityMessage = (item: AgentChatItem) => {
+        const currentMessages = useAgentStore.getState().messages;
+        const index = currentMessages.findIndex((message) => message.id === item.id);
+        if (index < 0) {
+            pushMessage(item);
+            return;
+        }
+        setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, ...item } : message)) });
+    };
+
+    const appendActivityDelta = (item: AgentEventItem) => {
+        if (!item.id) return;
+        const delta = stringText(item.delta);
+        if (!delta) return;
+        const currentMessages = useAgentStore.getState().messages;
+        const index = currentMessages.findIndex((message) => message.id === item.id);
+        if (index < 0) {
+            if (!delta.trim()) return;
+            upsertActivityMessage(activityDeltaFallback(item, delta));
+            return;
+        }
+        const current = currentMessages[index];
+        if (item.type === "command_execution") {
+            const detail = activityDetail(current.detail, "command", "inProgress");
+            detail.output = `${detail.output || ""}${delta}`;
+            setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, detail } : message)) });
+            return;
+        }
+        const placeholder = activityPlaceholder(item.type);
+        if (!delta.trim() && current.text === placeholder) return;
+        const text = current.text === placeholder ? delta : `${current.text}${delta}`;
+        setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text, detail: { ...activityDetail(message.detail, activityKind(item.type), "inProgress") } } : message)) });
+    };
+
     const handleAgentEvent = (event: AgentEventPayload) => {
         if (event.type === "usage.updated") setAgentState({ tokenUsage: eventUsage(event) });
         const log = formatAgentEventLog(event);
@@ -601,6 +658,10 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
         if (event.type === "item.updated" && event.item?.type === "agent_message" && event.item.id) {
             appendStreamDelta(event.item.id, stringText(event.item.delta));
+            return;
+        }
+        if (event.type === "item.updated" && event.item) {
+            appendActivityDelta(event.item);
             return;
         }
         if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.id) {
@@ -611,6 +672,11 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text: text || message.text, streamId: undefined } : message)) });
                 return;
             }
+        }
+        const activity = formatAgentActivity(event);
+        if (activity && event.item?.id) {
+            upsertActivityMessage({ ...activity, id: event.item.id });
+            return;
         }
         if (event.type === "turn.completed") setAgentState({ messages: useAgentStore.getState().messages.map((message) => (message.streamId ? { ...message, streamId: undefined } : message)) });
         const item = formatAgentEvent(event);
@@ -742,6 +808,7 @@ function AgentChatTimeline({
     const followMessagesRef = useRef(true);
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
     const streaming = messages.some((message) => message.streamId);
+    const working = workingActivity(messages.at(-1));
     const updateScrollState = useCallback(() => {
         const list = listRef.current;
         if (!list) return;
@@ -769,13 +836,13 @@ function AgentChatTimeline({
                 {pendingTool ? (
                     <AgentPendingToolCard
                         summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
-                        detail={{ requestId: pendingTool.requestId, name: pendingTool.name, input: pendingTool.input }}
+                        detail={toolCallDetail(pendingTool.name, pendingTool.input, "pending")}
                         theme={theme}
                         onReject={onRejectTool}
                         onApprove={onApproveTool}
                     />
                 ) : null}
-                {(sending || waiting) && !streaming && !pendingTool ? <AgentWorkingMessage theme={theme} /> : null}
+                {(sending || waiting) && !streaming && !pendingTool ? <AgentWorkingMessage text={working.text} activityKey={working.key} theme={theme} /> : null}
             </div>
             {showScrollToBottom ? (
                 <Tooltip title="滚动到底部" placement="left">
@@ -1191,8 +1258,117 @@ function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> |
     const item = event.item;
     if (event.type === "item.completed" && item?.type === "error") return { role: "error", title: "错误", text: normalizeText(item.message), detail: item };
     if (event.type === "item.completed" && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text) };
-    if (event.type === "item.completed" && isMcpToolItem(item) && isReadTool(String(item?.tool || ""))) return { role: "tool", title: `${toolName(String(item?.tool || ""))}完成`, text: item?.error?.message || toolSummary(item), detail: toolDetail(item) };
     return null;
+}
+
+function formatAgentActivity(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
+    const item = event.item;
+    if (!item || (event.type !== "item.started" && event.type !== "item.completed")) return null;
+    const completed = event.type === "item.completed";
+    const status = String(item.status || (completed ? "completed" : "inProgress"));
+    if (item.type === "reasoning") {
+        const text = readableText(item.summary) || (completed ? "已完成分析" : activityPlaceholder(item.type));
+        return { role: "tool", title: "思考摘要", text, detail: { kind: "reasoning", status } };
+    }
+    if (item.type === "plan") {
+        const text = stringText(item.text) || activityPlaceholder(item.type);
+        return { role: "tool", title: "执行计划", text, detail: { kind: "plan", status } };
+    }
+    if (item.type === "command_execution") {
+        const command = stringText(item.command) || activityPlaceholder(item.type);
+        return { role: "tool", title: "执行命令", text: command, detail: commandActivityDetail(item, status) };
+    }
+    if (item.type === "file_change") {
+        const files = activityFiles(item.changes);
+        return { role: "tool", title: "修改文件", text: fileActivitySummary(files, completed), detail: { kind: "file", status, files } };
+    }
+    if (item.type === "web_search") {
+        return { role: "tool", title: "搜索资料", text: webSearchSummary(item), detail: { kind: "search", status, rows: webSearchDetailRows(item) } };
+    }
+    if (item.type === "image_view") return { role: "tool", title: "查看图片", text: stringText(item.path) || "正在查看图片", detail: { kind: "image", status } };
+    if (item.type === "context_compaction") return { role: "tool", title: "整理上下文", text: completed ? "已整理当前对话，继续处理任务" : "正在整理当前对话…", detail: { kind: "context", status } };
+    if (isMcpToolItem(item) && isReadTool(String(item.tool || ""))) {
+        const name = String(item.tool || "");
+        return { role: "tool", title: toolName(name), text: completed ? item.error?.message || toolSummary(item) : `正在${toolAction(name)}…`, detail: toolDetail(item, item.error ? "failed" : status) };
+    }
+    if (item.type === "dynamic_tool_call") return { role: "tool", title: "使用工具", text: completed ? "已完成工具操作" : "正在执行工具操作…", detail: { kind: "tool", status } };
+    if (item.type === "collab_tool_call") return { role: "tool", title: "协作处理", text: completed ? "已完成协作任务" : "正在协作处理任务…", detail: { kind: "tool", status } };
+    return null;
+}
+
+function activityDeltaFallback(item: AgentEventItem, delta: string): AgentChatItem {
+    if (item.type === "command_execution") return { id: item.id || createId(), role: "tool", title: "执行命令", text: activityPlaceholder(item.type), detail: { kind: "command", status: "inProgress", output: delta } };
+    return { id: item.id || createId(), role: "tool", title: item.type === "plan" ? "执行计划" : "思考摘要", text: delta, detail: { kind: activityKind(item.type), status: "inProgress" } };
+}
+
+function activityPlaceholder(type?: string) {
+    if (type === "plan") return "正在整理执行步骤…";
+    if (type === "command_execution") return "正在执行命令…";
+    return "正在分析任务…";
+}
+
+function activityKind(type?: string) {
+    if (type === "command_execution") return "command";
+    if (type === "plan") return "plan";
+    return "reasoning";
+}
+
+function activityDetail(value: unknown, kind: string, status: string): AgentUserDetail {
+    const current = value && typeof value === "object" ? (value as Partial<AgentUserDetail>) : {};
+    return { kind, status, rows: current.rows, output: current.output, files: current.files };
+}
+
+function commandActivityDetail(item: AgentEventItem, status: string): AgentUserDetail {
+    const rows = [detailRow("工作目录", item.cwd), detailRow("退出状态", item.exitCode), durationDetailRow(item.durationMs)].flatMap((row) => (row ? [row] : []));
+    return { kind: "command", status, rows, output: item.error?.message || stringText(item.aggregatedOutput) };
+}
+
+function activityFiles(value: unknown) {
+    return (Array.isArray(value) ? value : []).flatMap((change) => {
+        const path = stringText(objectField(change, "path"));
+        return path ? [{ path, action: changeAction(objectField(change, "kind")) }] : [];
+    });
+}
+
+function fileActivitySummary(files: Array<{ path: string; action?: string }>, completed: boolean) {
+    if (!files.length) return completed ? "已完成文件修改" : "正在准备文件修改…";
+    if (files.length === 1) return `${completed ? "已" : "正在"}${files[0].action || "修改"} ${files[0].path}`;
+    const names = files.slice(0, 3).map((file) => file.path).join("、");
+    return `${completed ? "已修改" : "正在修改"} ${files.length} 个文件：${names}${files.length > 3 ? " 等" : ""}`;
+}
+
+function webSearchSummary(item: AgentEventItem) {
+    const action = item.action;
+    const type = stringText(objectField(action, "type"));
+    if (type === "openPage") return `打开网页：${stringText(objectField(action, "url"))}`;
+    if (type === "findInPage") return `在网页中查找“${stringText(objectField(action, "pattern")) || "相关内容"}”`;
+    return `搜索：${stringText(item.query) || stringText(objectField(action, "query")) || "相关资料"}`;
+}
+
+function webSearchDetailRows(item: AgentEventItem) {
+    const action = item.action;
+    return [detailRow("关键词", item.query || objectField(action, "query")), detailRow("网页", objectField(action, "url"))].flatMap((row) => (row ? [row] : []));
+}
+
+function readableText(value: unknown): string {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) return value.map(readableText).filter(Boolean).join("\n");
+    return readableText(objectField(value, "text"));
+}
+
+function detailRow(label: string, value: unknown) {
+    return value === undefined || value === null || value === "" ? null : { label, value: String(value) };
+}
+
+function durationDetailRow(value: unknown) {
+    const duration = Number(value || 0);
+    return duration > 0 ? { label: "耗时", value: `${(duration / 1000).toFixed(1)} 秒` } : null;
+}
+
+function changeAction(value: unknown) {
+    if (value === "add") return "新增";
+    if (value === "delete") return "删除";
+    return "修改";
 }
 
 function parseEventData<T>(event: Event) {
@@ -1285,9 +1461,9 @@ function toolName(name: string) {
     if (name === "canvas_select_nodes") return "选择节点";
     if (name === "canvas_set_viewport") return "调整视口";
     if (name === "canvas_run_generation") return "触发生成";
-    if (name === "site_navigate") return "网站跳转";
+    if (name === "site_navigate") return "打开页面";
     if (isSiteTool(name)) return SITE_TOOL_LABELS[name];
-    return name;
+    return "工具操作";
 }
 
 function siteToolSummary(name: string, result: unknown) {
@@ -1313,8 +1489,22 @@ function isMcpToolItem(item?: AgentEventItem) {
     return item?.type === "mcp_tool_call";
 }
 
-function toolDetail(item?: AgentEventItem) {
-    return { server: item?.server, tool: item?.tool, status: item?.status, arguments: item?.arguments, result: parseToolResult(item?.result), error: item?.error };
+function toolDetail(item: AgentEventItem | undefined, status: string): AgentUserDetail {
+    const name = String(item?.tool || "");
+    return { kind: "tool", status, rows: toolInputRows(name, item?.arguments), ...(item?.error?.message ? { output: item.error.message } : {}) };
+}
+
+function toolCallDetail(name: string, input: unknown, status: string, error = ""): AgentUserDetail {
+    return { kind: "tool", status, rows: toolInputRows(name, input), ...(error ? { output: error } : {}) };
+}
+
+function toolInputRows(name: string, input: unknown) {
+    if (name === "site_navigate") return [detailRow("目标页面", routeName(stringText(objectField(input, "path")) || "/"))].flatMap((row) => (row ? [row] : []));
+    if (name === "prompts_search") return [detailRow("搜索内容", objectField(input, "query"))].flatMap((row) => (row ? [row] : []));
+    if (name === "canvas_create_text_node") return [detailRow("文本内容", objectField(input, "text"))].flatMap((row) => (row ? [row] : []));
+    if (name === "canvas_apply_ops") return [detailRow("操作内容", summarizeCanvasAgentOps((objectField(input, "ops") as CanvasAgentOp[] | undefined) || []))].flatMap((row) => (row ? [row] : []));
+    if (name === "canvas_create_attachment_nodes") return [detailRow("图片数量", Array.isArray(objectField(input, "nodes")) ? (objectField(input, "nodes") as unknown[]).length : 0)].flatMap((row) => (row ? [row] : []));
+    return [];
 }
 
 function toolSummary(item?: AgentEventItem) {
@@ -1325,6 +1515,33 @@ function toolSummary(item?: AgentEventItem) {
     const connections = Array.isArray(connectionField) ? connectionField : [];
     if (Array.isArray(nodeField) || Array.isArray(connectionField)) return `读取到 ${nodes.length} 个节点，${connections.length} 条连线`;
     return "工具调用完成";
+}
+
+function toolAction(name: string) {
+    const label = toolName(name);
+    if (label.startsWith("读取") || label.startsWith("查看") || label.startsWith("搜索") || label.startsWith("打开")) return label;
+    return `执行${label}`;
+}
+
+function routeName(path: string) {
+    if (path === "/") return "首页";
+    if (path === "/canvas") return "画布页面";
+    if (path.startsWith("/canvas/")) return "指定画布";
+    if (path.startsWith("/image")) return "生图工作台";
+    if (path.startsWith("/video")) return "视频工作台";
+    if (path.startsWith("/prompts")) return "提示词中心";
+    if (path.startsWith("/assets")) return "我的素材";
+    if (path.startsWith("/config")) return "配置页面";
+    return path;
+}
+
+function workingActivity(item?: AgentChatItem) {
+    const status = String(objectField(item?.detail, "status") || "");
+    const key = `${item?.id || "waiting"}-${status}`;
+    if (item?.role !== "tool") return { key, text: "正在思考..." };
+    if (["inProgress", "in_progress", "running", "pending"].includes(status)) return { key, text: `${item.title || "工具操作"}正在进行...` };
+    if (item.title === "读取画布") return { key, text: "画布已读取，Codex 正在整理结果..." };
+    return { key, text: `${item.title || "工具操作"}已完成，Codex 正在继续处理...` };
 }
 
 function parseToolResult(result: unknown) {

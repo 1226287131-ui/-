@@ -11,7 +11,8 @@ import type { AgentEmit } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
-type PendingDelta = { delta: string; params: CodexNotificationParams<"item/agentMessage/delta">; timer: ReturnType<typeof setTimeout> };
+type ItemDeltaParams = { threadId: string; turnId: string; itemId: string; delta: string };
+type PendingDelta = { delta: string; itemType: string; params: ItemDeltaParams; timer: ReturnType<typeof setTimeout> };
 
 const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
@@ -162,7 +163,8 @@ export class CodexAppClient {
         const id = Number(message.id);
         if (message.error && this.pending.has(id)) {
             const error = String(field(message.error, "message") || "Codex request failed");
-            logger.warn("Codex request failed", { id, error });
+            if (/not materialized yet.*includeTurns/i.test(error)) logger.debug("Codex thread has no messages yet", { id });
+            else logger.warn("Codex request failed", { id, error });
             return this.reject(id, error);
         }
         if (this.pending.has(id)) return this.resolve(id, message.result);
@@ -172,7 +174,14 @@ export class CodexAppClient {
 
     /** 转换并广播 app-server 通知。 */
     private handleNotification(method: string, params: JsonRecord) {
-        if (method === "item/agentMessage/delta") return this.emitDelta(params as unknown as CodexNotificationParams<"item/agentMessage/delta">);
+        if (method === "item/agentMessage/delta") {
+            const value = params as unknown as CodexNotificationParams<"item/agentMessage/delta">;
+            this.textByItem.set(value.itemId, `${this.textByItem.get(value.itemId) || ""}${value.delta}`);
+            return this.emitDelta("agent_message", value);
+        }
+        if (method === "item/plan/delta") return this.emitDelta("plan", params as unknown as CodexNotificationParams<"item/plan/delta">);
+        if (method === "item/reasoning/summaryTextDelta") return this.emitDelta("reasoning", params as unknown as CodexNotificationParams<"item/reasoning/summaryTextDelta">);
+        if (method === "item/commandExecution/outputDelta") return this.emitDelta("command_execution", params as unknown as CodexNotificationParams<"item/commandExecution/outputDelta">);
         if (method === "thread/tokenUsage/updated") {
             this.lastUsage = normalizeUsage(params as unknown as CodexNotificationParams<"thread/tokenUsage/updated">);
             this.emit("agent_event", { agent: "codex", type: "usage.updated", usage: this.lastUsage, ...codexEventScope(params) });
@@ -209,18 +218,19 @@ export class CodexAppClient {
         }
     }
 
-    /** 合并并广播 Agent 文本增量。 */
-    private emitDelta(params: CodexNotificationParams<"item/agentMessage/delta">) {
+    /** 合并并广播 Agent 文本或执行输出增量。 */
+    private emitDelta(itemType: string, params: ItemDeltaParams) {
         const id = params.itemId;
-        this.textByItem.set(id, `${this.textByItem.get(id) || ""}${params.delta}`);
         const pending = this.pendingDeltas.get(id);
         if (pending) {
             pending.delta += params.delta;
+            pending.itemType = itemType;
             pending.params = params;
             return;
         }
         this.pendingDeltas.set(id, {
             delta: params.delta,
+            itemType,
             params,
             timer: setTimeout(() => this.flushDelta(id), STREAM_UPDATE_INTERVAL_MS),
         });
@@ -232,7 +242,7 @@ export class CodexAppClient {
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pendingDeltas.delete(id);
-        if (pending.delta) this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", delta: pending.delta }, ...codexEventScope(pending.params) });
+        if (pending.delta) this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: pending.itemType, delta: pending.delta }, ...codexEventScope(pending.params as unknown as JsonRecord) });
     }
 
     /** 自动回复 app-server 发起的授权或交互请求。 */
@@ -310,6 +320,13 @@ function normalizeItem(item: unknown) {
     const value = item && typeof item === "object" ? { ...(item as JsonRecord) } : {};
     if (value.type === "agentMessage") value.type = "agent_message";
     if (value.type === "mcpToolCall") value.type = "mcp_tool_call";
+    if (value.type === "commandExecution") value.type = "command_execution";
+    if (value.type === "fileChange") value.type = "file_change";
+    if (value.type === "dynamicToolCall") value.type = "dynamic_tool_call";
+    if (value.type === "collabToolCall") value.type = "collab_tool_call";
+    if (value.type === "webSearch") value.type = "web_search";
+    if (value.type === "imageView") value.type = "image_view";
+    if (value.type === "contextCompaction") value.type = "context_compaction";
     if (value.type === "agent_message" && typeof value.id === "string") value.text = String(value.text || "");
     if ("arguments" in value) value.arguments = parseMaybeJson(value.arguments);
     return value;

@@ -36,14 +36,31 @@ export function threadMessages(thread: unknown): AgentHistoryMessage[] {
             }
             if (type === "mcpToolCall") {
                 const tool = String(field(item, "tool") || "工具调用");
-                const error = field(field(item, "error"), "message");
-                messages.push({ id, role: error ? "error" : "tool", title: toolName(tool), text: error ? String(error) : `${toolName(tool)} ${String(field(item, "status") || "完成")}`, detail: item });
+                const error = String(field(field(item, "error"), "message") || "");
+                const input = toolArguments(field(item, "arguments"));
+                messages.push({ id, role: "tool", title: toolName(tool), text: error || toolHistorySummary(tool, input), detail: toolHistoryDetail(tool, item, input, error) });
             }
             if (type === "commandExecution") {
                 const command = String(field(item, "command") || "").trim();
-                if (command) messages.push({ id, role: "tool", title: "命令", text: command, detail: { cwd: field(item, "cwd"), status: field(item, "status"), exitCode: field(item, "exitCode") } });
+                if (command) messages.push({ id, role: "tool", title: "执行命令", text: command, detail: commandDetail(item) });
             }
-            if (type === "fileChange") messages.push({ id, role: "tool", title: "文件变更", text: "Codex 修改了文件", detail: item });
+            if (type === "fileChange") {
+                const changes = arrayValue(field(item, "changes"));
+                messages.push({ id, role: "tool", title: "修改文件", text: fileChangeSummary(changes), detail: { kind: "file", status: field(item, "status"), files: changes.map((change) => ({ path: String(field(change, "path") || "未知文件"), action: changeKind(field(change, "kind")) })) } });
+            }
+            if (type === "reasoning") {
+                const text = readableText(field(item, "summary"));
+                if (text) messages.push({ id, role: "tool", title: "思考摘要", text, detail: { kind: "reasoning", status: "completed" } });
+            }
+            if (type === "plan") {
+                const text = String(field(item, "text") || "").trim();
+                if (text) messages.push({ id, role: "tool", title: "执行计划", text, detail: { kind: "plan", status: "completed" } });
+            }
+            if (type === "webSearch") messages.push({ id, role: "tool", title: "搜索资料", text: webSearchSummary(item), detail: { kind: "search", status: "completed", rows: webSearchRows(item) } });
+            if (type === "imageView") messages.push({ id, role: "tool", title: "查看图片", text: String(field(item, "path") || "已查看图片"), detail: { kind: "image", status: "completed" } });
+            if (type === "contextCompaction") messages.push({ id, role: "tool", title: "整理上下文", text: "已整理当前对话，继续处理任务", detail: { kind: "context", status: "completed" } });
+            if (type === "dynamicToolCall") messages.push({ id, role: "tool", title: "使用工具", text: "已完成工具操作", detail: { kind: "tool", status: field(item, "status") } });
+            if (type === "collabToolCall") messages.push({ id, role: "tool", title: "协作处理", text: "已完成协作任务", detail: { kind: "tool", status: field(item, "status") } });
         });
     });
     return messages.filter((item) => item.text).slice(-120);
@@ -81,20 +98,148 @@ function stringOrNull(value: unknown) {
     return typeof value === "string" && value.trim() ? value : null;
 }
 
+/** 生成命令执行的用户可读详情。 */
+function commandDetail(item: unknown) {
+    const rows = [
+        textRow("工作目录", field(item, "cwd")),
+        textRow("退出状态", field(item, "exitCode")),
+        durationRow(field(item, "durationMs")),
+    ].filter(Boolean);
+    return { kind: "command", status: field(item, "status"), rows, output: String(field(item, "aggregatedOutput") || "").trim() };
+}
+
+/** 生成 MCP 工具的用户可读详情。 */
+function toolHistoryDetail(tool: string, item: unknown, input: unknown, error: string) {
+    return { kind: "tool", status: error ? "failed" : field(item, "status"), rows: toolInputRows(tool, input), ...(error ? { output: error } : {}) };
+}
+
+/** 生成 MCP 工具在对话中的结果摘要。 */
+function toolHistorySummary(tool: string, input: unknown) {
+    if (tool === "site_navigate") return `已打开${routeName(String(field(input, "path") || "/"))}`;
+    if (tool === "canvas_list_projects") return "已读取画布列表";
+    if (tool === "canvas_get_state") return "已读取当前画布内容";
+    if (tool === "canvas_get_selection") return "已读取当前选中内容";
+    if (tool === "prompts_search") return `已搜索提示词“${String(field(input, "query") || "") || "全部"}”`;
+    if (tool === "assets_list") return "已读取我的素材";
+    if (tool === "generation_get_status") return "已检查生成任务状态";
+    return `${toolName(tool)}已完成`;
+}
+
+/** 提取工具参数中适合普通用户查看的信息。 */
+function toolInputRows(tool: string, input: unknown) {
+    if (tool === "site_navigate") return [textRow("目标页面", routeName(String(field(input, "path") || "/")))].filter(Boolean);
+    if (tool === "prompts_search") return [textRow("搜索内容", field(input, "query"))].filter(Boolean);
+    if (tool === "canvas_create_text_node") return [textRow("文本内容", field(input, "text"))].filter(Boolean);
+    if (tool === "canvas_apply_ops") return [textRow("操作数量", arrayValue(field(input, "ops")).length)].filter(Boolean);
+    return [];
+}
+
+/** 生成人类可读的文件变更摘要。 */
+function fileChangeSummary(changes: unknown[]) {
+    if (!changes.length) return "已完成文件修改";
+    const names = changes.slice(0, 3).map((change) => String(field(change, "path") || "未知文件"));
+    if (changes.length === 1) return `${changeKind(field(changes[0], "kind"))}${names[0]}`;
+    return `涉及 ${changes.length} 个文件：${names.join("、")}${changes.length > names.length ? " 等" : ""}`;
+}
+
+/** 生成网页搜索摘要。 */
+function webSearchSummary(item: unknown) {
+    const action = field(item, "action");
+    const type = String(field(action, "type") || "");
+    if (type === "openPage") return `打开网页：${String(field(action, "url") || "")}`;
+    if (type === "findInPage") return `在网页中查找“${String(field(action, "pattern") || "内容")}”`;
+    return `搜索：${String(field(item, "query") || field(action, "query") || "相关资料")}`;
+}
+
+/** 生成网页搜索详情行。 */
+function webSearchRows(item: unknown) {
+    const action = field(item, "action");
+    return [textRow("关键词", field(item, "query") || field(action, "query")), textRow("网页", field(action, "url"))].filter(Boolean);
+}
+
+/** 从 reasoning 结构中提取可读文本。 */
+function readableText(value: unknown): string {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) return value.map(readableText).filter(Boolean).join("\n");
+    return readableText(field(value, "text"));
+}
+
+/** 将历史工具参数解析为对象。 */
+function toolArguments(value: unknown) {
+    if (typeof value !== "string") return value;
+    try {
+        return JSON.parse(value) as unknown;
+    } catch {
+        return {};
+    }
+}
+
+/** 创建非空详情行。 */
+function textRow(label: string, value: unknown) {
+    return value === undefined || value === null || value === "" ? null : { label, value: String(value) };
+}
+
+/** 创建命令耗时详情行。 */
+function durationRow(value: unknown) {
+    const duration = Number(value || 0);
+    return duration > 0 ? { label: "耗时", value: `${(duration / 1000).toFixed(1)} 秒` } : null;
+}
+
+/** 将文件变更类型转换为中文。 */
+function changeKind(value: unknown) {
+    if (value === "add") return "新增";
+    if (value === "delete") return "删除";
+    return "修改";
+}
+
+/** 将站点路由转换为中文页面名称。 */
+function routeName(path: string) {
+    if (path === "/") return "首页";
+    if (path === "/canvas") return "画布页面";
+    if (path.startsWith("/canvas/")) return "指定画布";
+    if (path.startsWith("/image")) return "生图工作台";
+    if (path.startsWith("/video")) return "视频工作台";
+    if (path.startsWith("/prompts")) return "提示词中心";
+    if (path.startsWith("/assets")) return "我的素材";
+    if (path.startsWith("/config")) return "配置页面";
+    return path;
+}
+
 /** 将 MCP 工具名称转换为聊天记录中的中文标题。 */
 function toolName(name: string) {
+    if (name === "site_navigate") return "打开页面";
+    if (name === "canvas_list_projects") return "查看画布列表";
     if (name === "canvas_apply_ops") return "画布操作";
     if (name === "canvas_get_state") return "读取画布";
     if (name === "canvas_get_selection") return "读取选区";
     if (name === "canvas_export_snapshot") return "导出快照";
+    if (name === "canvas_create_node") return "创建节点";
     if (name === "canvas_create_attachment_nodes") return "添加附件图片";
     if (name === "canvas_create_text_node") return "创建文本";
+    if (name === "canvas_create_text_nodes") return "批量创建文本";
+    if (name === "canvas_create_config_node") return "创建生成配置";
     if (name === "canvas_create_image_prompt_flow") return "创建生图流程";
     if (name === "canvas_create_generation_flow") return "创建生成流程";
     if (name === "canvas_generate_text") return "生成文本";
     if (name === "canvas_generate_image") return "生成图片";
     if (name === "canvas_generate_video") return "生成视频";
     if (name === "canvas_generate_audio") return "生成音频";
+    if (name === "canvas_update_node") return "更新节点";
+    if (name === "canvas_update_node_text") return "更新文本";
+    if (name === "canvas_move_nodes") return "移动节点";
+    if (name === "canvas_resize_node") return "调整节点尺寸";
+    if (name === "canvas_delete_nodes") return "删除节点";
+    if (name === "canvas_connect_nodes") return "连接节点";
+    if (name === "canvas_select_nodes") return "选择节点";
+    if (name === "canvas_set_viewport") return "调整视口";
     if (name === "canvas_run_generation") return "触发生成";
-    return name;
+    if (name === "workbench_image_get_config") return "读取生图设置";
+    if (name === "workbench_image_generate") return "在生图工作台生成";
+    if (name === "workbench_video_get_config") return "读取视频设置";
+    if (name === "workbench_video_generate") return "在视频工作台生成";
+    if (name === "prompts_search") return "搜索提示词";
+    if (name === "assets_list") return "查看我的素材";
+    if (name === "assets_add") return "添加到我的素材";
+    if (name === "generation_get_status") return "查看生成状态";
+    return "工具操作";
 }
