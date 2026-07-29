@@ -124,7 +124,7 @@ function ToolConfirmationMenu({ confirmTools, theme, onChange }: { confirmTools:
                 ],
             }}
         >
-            <button type="button" className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition" style={{ background: theme.toolbar.activeBg, color: theme.node.text }} aria-label="选择工具确认模式">
+            <button type="button" className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="选择工具确认模式">
                 {confirmTools ? <Hand className="size-3.5" /> : <RefreshCw className="size-3.5" />}
                 <span>{confirmTools ? "手动确认" : "自动确认"}</span>
                 <ChevronUp className="size-3 opacity-50" />
