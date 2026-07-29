@@ -131,7 +131,8 @@ function displayUserText(text: string) {
     const value = text.trim();
     const marker = "用户请求：";
     const index = value.lastIndexOf(marker);
-    return (index >= 0 ? value.slice(index + marker.length) : value).trim();
+    const prompt = index >= 0 ? value.slice(index + marker.length) : value;
+    return prompt.split("\n\n本轮可用图片附件（顺序与图片输入一致）：", 1)[0].trim();
 }
 
 /** 将未知值转换为数组。 */

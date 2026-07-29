@@ -473,3 +473,16 @@ export function normalizeHistoryMessages(messages: AgentChatItem[]) {
         }))
         .filter((item) => item.text);
 }
+
+export function mergeHistoryAttachments(messages: AgentChatItem[], currentMessages: AgentChatItem[]) {
+    const currentUsers = currentMessages.filter((item) => item.role === "user").reverse();
+    let userIndex = 0;
+    return [...messages]
+        .reverse()
+        .map((item) => {
+            if (item.role !== "user") return item;
+            const current = currentUsers[userIndex++];
+            return current?.attachments?.length ? { ...item, id: current.id, text: current.text, attachments: current.attachments } : item;
+        })
+        .reverse();
+}

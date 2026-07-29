@@ -54,7 +54,7 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
                 ) : (
                     <Streamdown animated isAnimating={!!item.streamId}>{item.text}</Streamdown>
                 )}
-                {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} /> : null}
+                {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} alignRight={isUser} /> : null}
                 {item.meta ? <div className={`mt-1 text-[11px] tabular-nums opacity-55 ${isUser ? "text-right" : ""}`}>{item.meta}</div> : null}
             </div>
             {isUser ? <AgentUserAvatar user={user} theme={theme} /> : null}
@@ -239,11 +239,11 @@ function AgentUserAvatar({ user, theme }: { user: LocalUser | null; theme: (type
     );
 }
 
-function AgentMessageAttachments({ attachments }: { attachments: AgentChatAttachment[] }) {
+function AgentMessageAttachments({ attachments, alignRight }: { attachments: AgentChatAttachment[]; alignRight?: boolean }) {
     return (
-        <div className="mt-2 grid grid-cols-3 gap-1.5">
+        <div className={`mt-2 flex flex-wrap gap-2 ${alignRight ? "justify-end" : "justify-start"}`}>
             {attachments.map((item) => (
-                <img key={item.id} src={item.url} alt={item.name} className="aspect-square w-full rounded-lg object-cover" />
+                <img key={item.id} src={item.url} alt={item.name} className="max-h-72 max-w-[280px] rounded-xl object-contain" />
             ))}
         </div>
     );

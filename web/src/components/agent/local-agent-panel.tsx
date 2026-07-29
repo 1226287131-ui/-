@@ -36,6 +36,7 @@ import {
     isCanvasWriteTool,
     isConnectionErrorMessage,
     isCurrentThreadEvent,
+    mergeHistoryAttachments,
     mergeAgentText,
     normalizeHistoryMessages,
     normalizeText,
@@ -127,7 +128,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             if (currentThreadId && !skipHistory) {
                 let thread = await currentThreadRequest;
                 thread ||= await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(currentThreadId)}`);
-                nextMessages = normalizeHistoryMessages(thread.messages || []);
+                nextMessages = mergeHistoryAttachments(normalizeHistoryMessages(thread.messages || []), useAgentStore.getState().messages);
             }
             if (sequence !== loadThreadsSequenceRef.current) return;
             setAgentState({ threads: data.data || [], workspacePath: data.workspace?.workspacePath || "", ...(skipHistory ? {} : { messages: nextMessages }) });
