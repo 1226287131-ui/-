@@ -1,6 +1,6 @@
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Bot, PanelRightClose } from "lucide-react";
-import { Button, Switch, Tooltip } from "antd";
+import { Button, Tooltip } from "antd";
 import { motion } from "motion/react";
 
 import { LocalAgentPanel } from "./local-agent-panel";
@@ -17,7 +17,6 @@ export function AgentPanel() {
     const panelMounted = useAgentStore((state) => state.panelMounted);
     const panelOpen = useAgentStore((state) => state.panelOpen);
     const panelClosing = useAgentStore((state) => state.panelClosing);
-    const confirmTools = useAgentStore((state) => state.confirmTools);
     const setAgentState = useAgentStore((state) => state.setAgentState);
     const closePanel = useAgentStore((state) => state.closePanel);
 
@@ -72,10 +71,6 @@ export function AgentPanel() {
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                        <label className="flex items-center gap-1.5 text-xs" style={{ color: theme.node.muted }}>
-                            <Switch size="small" checked={confirmTools} onChange={(confirmTools) => setAgentState({ confirmTools })} />
-                            工具确认
-                        </label>
                         <Tooltip title="收起对话">
                             <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.muted }} icon={<PanelRightClose className="size-4" />} onClick={closePanel} />
                         </Tooltip>

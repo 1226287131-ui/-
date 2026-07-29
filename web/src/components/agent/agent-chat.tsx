@@ -6,7 +6,6 @@ import { motion, useSpring, useTransform } from "motion/react";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
 import { useAgentStore, type AgentChatItem, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
-import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 import { AgentChatMessage, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
 import { agentMessageToChatMessage, currentPlanMessage, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
 
@@ -28,7 +27,6 @@ export function AgentChatTimeline({
     onApproveTool: () => void;
 }) {
     const messages = useAgentStore((state) => state.messages);
-    const user = useUserStore((state) => state.user);
     const listRef = useRef<HTMLDivElement>(null);
     const followMessagesRef = useRef(true);
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -56,7 +54,7 @@ export function AgentChatTimeline({
         <div className="relative min-h-0 flex-1">
             <div ref={listRef} className="thin-scrollbar h-full select-text space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
                 {messages.map((item) => (
-                    isPlanMessage(item) ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
+                    isPlanMessage(item) ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} />
                 ))}
                 {pendingTool ? (
                     <AgentPendingToolCard
@@ -96,10 +94,10 @@ export function AgentTaskProgress({ theme, busy }: { theme: (typeof canvasThemes
     );
 }
 
-const AgentChatMessageRow = memo(function AgentChatMessageRow({ item, theme, user }: { item: AgentChatItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null }) {
+const AgentChatMessageRow = memo(function AgentChatMessageRow({ item, theme }: { item: AgentChatItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     return (
         <div style={{ contentVisibility: "auto", containIntrinsicSize: "0 80px" }}>
-            <AgentChatMessage item={agentMessageToChatMessage(item)} theme={theme} user={user} />
+            <AgentChatMessage item={agentMessageToChatMessage(item)} theme={theme} />
         </div>
     );
 });

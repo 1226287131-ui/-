@@ -806,6 +806,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                         onStop={stopTurn}
                         onAddFiles={addAttachments}
                         onRemoveAttachment={removeAttachment}
+                        confirmTools={confirmTools}
+                        onConfirmToolsChange={(confirmTools) => setAgentState({ confirmTools })}
                         left={
                             attachments.length ? (
                                 <span className="text-[11px]" style={{ color: theme.node.muted }}>

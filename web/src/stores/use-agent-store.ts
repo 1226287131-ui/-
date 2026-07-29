@@ -80,7 +80,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     workspacePath: "",
     loadingThreads: false,
     activeTab: "setup",
-    confirmTools: true,
+    confirmTools: false,
     activity: "就绪",
     connectError: "",
     pendingTool: null,

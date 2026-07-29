@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Image } from "antd";
-import { Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, UserRound, Wrench, XCircle } from "lucide-react";
+import { Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, Wrench, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import type { LocalUser } from "@/stores/use-user-store";
 
 export type AgentChatAttachment = { id: string; name: string; url: string };
 export type AgentChatMessageItem = {
@@ -19,7 +18,7 @@ export type AgentChatMessageItem = {
     streamId?: string;
 };
 
-export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveTool }: { item: AgentChatMessageItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
+export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: { item: AgentChatMessageItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
@@ -35,18 +34,12 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
     }
     if (item.role === "tool") {
         if (objectField(item.detail, "status") === "pending") return <AgentPendingToolCard summary={item.text} detail={item.detail} theme={theme} onReject={() => onRejectTool?.(item.id)} onApprove={() => onApproveTool?.(item.id)} />;
-        return (
-            <div className="flex items-start gap-3">
-                <AgentAvatar theme={theme} />
-                <AgentToolCard title={item.title || "工具调用"} text={item.text} detail={item.detail} theme={theme} />
-            </div>
-        );
+        return <AgentToolCard title={item.title || "工具调用"} text={item.text} detail={item.detail} theme={theme} />;
     }
     return (
-        <div className={`flex items-start gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
-            {!isUser ? <AgentAvatar theme={theme} /> : null}
+        <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
             <div
-                className={isUser ? "min-w-0 max-w-[82%] py-1 text-right text-sm leading-6" : "min-w-0 flex-1 text-left text-sm leading-6"}
+                className={isUser ? "min-w-0 max-w-[82%] py-1 text-right text-sm leading-6" : "min-w-0 w-full text-left text-sm leading-6"}
                 style={{ color }}
             >
                 {isUser ? (
@@ -57,7 +50,6 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} alignRight={isUser} /> : null}
                 {item.meta ? <div className={`mt-1 text-[11px] tabular-nums opacity-55 ${isUser ? "text-right" : ""}`}>{item.meta}</div> : null}
             </div>
-            {isUser ? <AgentUserAvatar user={user} theme={theme} /> : null}
         </div>
     );
 }
@@ -65,33 +57,28 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
 export function AgentPendingToolCard({ summary, detail, theme, onReject, onApprove }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onReject?: () => void; onApprove?: () => void }) {
     const view = userDetail(detail);
     return (
-        <div className="flex items-start gap-3">
-            <AgentAvatar theme={theme} />
-            <div className="min-w-0 flex-1 rounded-xl border px-3 py-3" style={{ borderColor: "rgba(217,119,6,.28)", background: "rgba(217,119,6,.025)", color: theme.node.text }}>
-                <details className="group">
-                    <summary className={`flex list-none items-start gap-2.5 ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
-                        <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
-                        <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 text-sm font-medium leading-5">
-                                <span>等待确认</span>
-                                {view ? <ChevronDown className="ml-auto size-3.5 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
-                            </div>
-                            <div className="mt-1 text-sm leading-5" style={{ color: theme.node.muted }}>{summary}</div>
-                        </div>
-                    </summary>
-                    {view ? <AgentDetailBlock detail={view} theme={theme} /> : null}
-                </details>
-                {onReject || onApprove ? (
-                    <div className="mt-3 flex justify-end gap-2 border-t pt-3" style={{ borderColor: theme.node.stroke }}>
-                        <Button danger type="text" className="!h-8" icon={<XCircle className="size-3.5" />} onClick={() => onReject?.()}>
-                            拒绝执行
-                        </Button>
-                        <Button type="text" className="!h-8" icon={<CheckCircle2 className="size-3.5" />} style={{ color: "#16a34a" }} onClick={() => onApprove?.()}>
-                            批准执行
-                        </Button>
+        <div className="min-w-0 rounded-xl border px-3 py-3" style={{ borderColor: "rgba(217,119,6,.28)", background: "rgba(217,119,6,.025)", color: theme.node.text }}>
+            <details className="group">
+                <summary className={`list-none ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
+                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-5">
+                        <CircleAlert className="size-4 shrink-0 text-amber-600" />
+                        <span className="min-w-0 flex-1">等待确认</span>
+                        {view ? <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
                     </div>
-                ) : null}
-            </div>
+                    <div className="mt-1 pl-6 text-sm leading-5" style={{ color: theme.node.muted }}>{summary}</div>
+                </summary>
+                {view ? <div className="ml-6"><AgentDetailBlock detail={view} theme={theme} /></div> : null}
+            </details>
+            {onReject || onApprove ? (
+                <div className="mt-3 flex justify-end gap-2 border-t pt-3" style={{ borderColor: theme.node.stroke }}>
+                    <Button danger type="text" className="!h-8" icon={<XCircle className="size-3.5" />} onClick={() => onReject?.()}>
+                        拒绝执行
+                    </Button>
+                    <Button type="text" className="!h-8" icon={<CheckCircle2 className="size-3.5" />} style={{ color: "#16a34a" }} onClick={() => onApprove?.()}>
+                        批准执行
+                    </Button>
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -103,23 +90,19 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
     const view = userDetail(detail);
     const kind = String(objectField(detail, "kind") || "");
     return (
-        <details className="group min-w-0 flex-1 rounded-xl border px-3 py-2.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
-            <summary className={`flex list-none items-start gap-2.5 ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
-                <span className="mt-0.5 shrink-0" style={{ color: state.color }}>{toolIcon(kind, state.icon)}</span>
-                <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-5">
-                        <span className="min-w-0 truncate">{title}</span>
-                        <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-normal" style={{ color: state.color }}>
-                            {state.label}
-                        </span>
-                        {view ? <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
-                    </div>
-                    <div className={`mt-1 whitespace-pre-wrap break-words text-sm leading-5 ${kind === "command" ? "font-mono text-[12px]" : ""}`} style={{ color: state.isError ? state.color : theme.node.muted }}>
-                        {text}
-                    </div>
+        <details className="group min-w-0 rounded-xl border px-3 py-2.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
+            <summary className={`list-none ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
+                <div className="flex min-w-0 items-center gap-2 text-sm leading-5">
+                    <span className="shrink-0" style={{ color: state.color }}>{toolIcon(kind, state.icon)}</span>
+                    <span className="min-w-0 truncate font-medium">{title}</span>
+                    <span className="shrink-0 text-[11px]" style={{ color: state.color }}>{state.label}</span>
+                    {view ? <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
+                </div>
+                <div className={`mt-1 whitespace-pre-wrap break-words pl-6 text-sm leading-5 ${kind === "command" ? "font-mono text-[12px]" : ""}`} style={{ color: state.isError ? state.color : theme.node.muted }}>
+                    {text}
                 </div>
             </summary>
-            {view ? <AgentDetailBlock detail={view} theme={theme} /> : null}
+            {view ? <div className="ml-6"><AgentDetailBlock detail={view} theme={theme} /></div> : null}
         </details>
     );
 }
@@ -163,16 +146,13 @@ export function AgentWorkingMessage({ text, activityKey, theme }: { text: string
         return () => window.clearInterval(timer);
     }, [activityKey]);
     return (
-        <div className="flex items-start gap-3">
-            <AgentAvatar theme={theme} />
-            <div className="min-w-0 flex-1 py-1" aria-live="polite">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: theme.node.muted }}>
-                    <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
-                    <span className="min-w-0">{text}</span>
-                    {elapsed >= 5 ? <span className="shrink-0 text-[11px] tabular-nums opacity-60">{waitingTime(elapsed)}</span> : null}
-                </div>
-                {elapsed >= 30 ? <div className="mt-1 text-xs leading-5 opacity-65" style={{ color: theme.node.muted }}>响应时间较长，但任务仍在运行。可以继续等待，或点击输入框右侧的停止按钮结束本轮。</div> : null}
+        <div className="min-w-0 py-1" aria-live="polite">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: theme.node.muted }}>
+                <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+                <span className="min-w-0">{text}</span>
+                {elapsed >= 5 ? <span className="shrink-0 text-[11px] tabular-nums opacity-60">{waitingTime(elapsed)}</span> : null}
             </div>
+            {elapsed >= 30 ? <div className="mt-1 text-xs leading-5 opacity-65" style={{ color: theme.node.muted }}>响应时间较长，但任务仍在运行。可以继续等待，或点击输入框右侧的停止按钮结束本轮。</div> : null}
         </div>
     );
 }
@@ -219,23 +199,6 @@ function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeo
                 </div>
             ) : null}
         </div>
-    );
-}
-
-function AgentAvatar({ theme }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
-    return (
-        <span className="grid size-8 shrink-0 place-items-center" role="img" aria-label="OpenAI">
-            <span className="size-5 opacity-80" style={{ background: theme.node.text, WebkitMask: "url(/icons/openai.svg) center / contain no-repeat", mask: "url(/icons/openai.svg) center / contain no-repeat" }} />
-        </span>
-    );
-}
-
-function AgentUserAvatar({ user, theme }: { user: LocalUser | null; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
-    const avatarUrl = user?.avatarUrl?.trim();
-    return (
-        <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full" style={{ color: theme.node.text }}>
-            {avatarUrl ? <img src={avatarUrl} alt="" className="size-full object-cover" referrerPolicy="no-referrer" /> : <UserRound className="size-4" />}
-        </span>
     );
 }
 

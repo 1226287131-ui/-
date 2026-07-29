@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from "react";
-import { Button, Tooltip } from "antd";
-import { ArrowUp, ImagePlus, LoaderCircle, Square, X } from "lucide-react";
+import { Button, Dropdown, Tooltip } from "antd";
+import { ArrowUp, Check, ChevronUp, Hand, ImagePlus, LoaderCircle, RefreshCw, Square, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isPlainEnterKey } from "@/lib/keyboard-event";
@@ -18,6 +18,8 @@ export function AgentChatComposer({
     onStop,
     onAddFiles,
     onRemoveAttachment,
+    confirmTools,
+    onConfirmToolsChange,
     left,
 }: {
     prompt: string;
@@ -31,6 +33,8 @@ export function AgentChatComposer({
     onStop?: () => void;
     onAddFiles?: (files: FileList | File[] | null) => void | Promise<void>;
     onRemoveAttachment?: (id: string) => void;
+    confirmTools?: boolean;
+    onConfirmToolsChange?: (confirmTools: boolean) => void;
     left?: ReactNode;
 }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -84,6 +88,7 @@ export function AgentChatComposer({
                                 </Tooltip>
                             </>
                         ) : null}
+                        {onConfirmToolsChange ? <ToolConfirmationMenu confirmTools={Boolean(confirmTools)} theme={theme} onChange={onConfirmToolsChange} /> : null}
                         {left}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -95,6 +100,48 @@ export function AgentChatComposer({
                     </div>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function ToolConfirmationMenu({ confirmTools, theme, onChange }: { confirmTools: boolean; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onChange: (confirmTools: boolean) => void }) {
+    return (
+        <Dropdown
+            trigger={["click"]}
+            placement="topLeft"
+            menu={{
+                items: [
+                    {
+                        key: "manual",
+                        label: <ConfirmationOption icon={<Hand className="size-4" />} title="手动确认" description="Agent 执行画布写入前会请求确认" selected={confirmTools} />,
+                        onClick: () => onChange(true),
+                    },
+                    {
+                        key: "automatic",
+                        label: <ConfirmationOption icon={<RefreshCw className="size-4" />} title="自动确认" description="Agent 会自动执行画布写入操作" selected={!confirmTools} />,
+                        onClick: () => onChange(false),
+                    },
+                ],
+            }}
+        >
+            <button type="button" className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition" style={{ background: theme.toolbar.activeBg, color: theme.node.text }} aria-label="选择工具确认模式">
+                {confirmTools ? <Hand className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+                <span>{confirmTools ? "手动确认" : "自动确认"}</span>
+                <ChevronUp className="size-3 opacity-50" />
+            </button>
+        </Dropdown>
+    );
+}
+
+function ConfirmationOption({ icon, title, description, selected }: { icon: ReactNode; title: string; description: string; selected: boolean }) {
+    return (
+        <div className="flex min-w-64 items-start gap-3 py-1">
+            <span className="mt-0.5 shrink-0">{icon}</span>
+            <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{title}</span>
+                <span className="mt-0.5 block text-xs leading-5 opacity-60">{description}</span>
+            </span>
+            {selected ? <Check className="mt-0.5 size-4 shrink-0" /> : null}
         </div>
     );
 }
