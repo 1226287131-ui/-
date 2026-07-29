@@ -126,16 +126,18 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
 }
 
 function AgentPlanCard({ title, plan, theme }: { title: string; plan: PlanDetail; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const [open, setOpen] = useState(true);
     const completed = plan.tasks.filter((item) => item.status === "completed").length;
     const state = planCardState(plan, completed);
     return (
-        <div className="min-w-0 flex-1 rounded-xl border px-3 py-3 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
-            <div className="flex min-w-0 items-center gap-2.5">
+        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="group min-w-0 flex-1 rounded-xl border px-3 py-2.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
+            <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2.5">
                 <ListChecks className="size-4 shrink-0" style={{ color: state.color }} />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
                 <span className="shrink-0 text-[11px]" style={{ color: state.color }}>{state.label}</span>
-                <span className="shrink-0 text-[11px] tabular-nums" style={{ color: theme.node.muted }}>{completed}/{plan.tasks.length}</span>
-            </div>
+                <span aria-live="polite" className="shrink-0 text-[11px] tabular-nums" style={{ color: theme.node.muted }}>{completed}/{plan.tasks.length}</span>
+                <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} />
+            </summary>
             {plan.explanation ? <div className="mt-1.5 text-xs leading-5" style={{ color: theme.node.muted }}>{plan.explanation}</div> : null}
             <div className="mt-2.5 space-y-2 border-t pt-2.5" style={{ borderColor: theme.node.stroke }}>
                 {plan.tasks.map((item, index) => {
@@ -149,7 +151,7 @@ function AgentPlanCard({ title, plan, theme }: { title: string; plan: PlanDetail
                     );
                 })}
             </div>
-        </div>
+        </details>
     );
 }
 

@@ -17,7 +17,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentAttachment, type AgentCanvasContext, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary, type AgentTokenUsage } from "@/stores/use-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool, SITE_TOOL_LABELS } from "@/lib/agent/agent-site-tools";
-import { AgentChatComposer, AgentChatMessage, AgentPanelTabs, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
+import { AgentChatComposer, AgentChatMessage, AgentPanelTabs, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
 
 const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_PAYLOAD_BYTES = 28 * 1024 * 1024;
@@ -786,6 +786,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             ) : (
                 <>
                     <AgentChatTimeline theme={theme} pendingTool={pendingTool} sending={sending} waiting={waiting} onRejectTool={rejectPendingTool} onApproveTool={approvePendingTool} />
+                    <AgentTaskProgress theme={theme} busy={sending || waiting} />
                     {tokenUsage ? <AgentUsageBar usage={tokenUsage} theme={theme} /> : null}
                     <AgentChatComposer
                         prompt={prompt}
@@ -837,7 +838,6 @@ function AgentChatTimeline({
     const followMessagesRef = useRef(true);
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
     const streaming = messages.some((message) => message.streamId);
-    const activePlan = sending || waiting ? currentPlanMessage(messages) : undefined;
     const working = workingActivity(messages.at(-1));
     const updateScrollState = useCallback(() => {
         const list = listRef.current;
@@ -858,15 +858,10 @@ function AgentChatTimeline({
         return () => cancelAnimationFrame(frame);
     }, [messages, pendingTool, scrollToBottom, updateScrollState, waiting]);
     return (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-            {activePlan ? (
-                <div className="relative z-10 shrink-0 px-4 pb-2 pt-4">
-                    <AgentChatMessageRow item={activePlan} theme={theme} user={user} />
-                </div>
-            ) : null}
-            <div ref={listRef} className={`thin-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-12 ${activePlan ? "pt-2" : "pt-4"}`} onScroll={updateScrollState}>
+        <div className="relative min-h-0 flex-1">
+            <div ref={listRef} className="thin-scrollbar h-full space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
                 {messages.map((item) => (
-                    item.id === activePlan?.id ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
+                    isPlanMessage(item) ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
                 ))}
                 {pendingTool ? (
                     <AgentPendingToolCard
@@ -892,6 +887,16 @@ function AgentChatTimeline({
                     />
                 </Tooltip>
             ) : null}
+        </div>
+    );
+}
+
+function AgentTaskProgress({ theme, busy }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; busy: boolean }) {
+    const plan = useAgentStore((state) => busy ? currentPlanMessage(state.messages) : latestPlanMessage(state.messages));
+    if (!plan) return null;
+    return (
+        <div className="shrink-0 px-4 pt-2">
+            <AgentToolCard key={plan.id} title={plan.title || "任务进度"} text={plan.text} detail={plan.detail} theme={theme} />
         </div>
     );
 }
@@ -1621,9 +1626,19 @@ function workingActivity(item?: AgentChatItem) {
 function currentPlanMessage(messages: AgentChatItem[]) {
     for (let index = messages.length - 1; index >= 0; index--) {
         const message = messages[index];
-        if (message.role === "tool" && objectField(message.detail, "kind") === "todo") return message;
+        if (isPlanMessage(message)) return message;
         if (message.role === "user") return;
     }
+}
+
+function latestPlanMessage(messages: AgentChatItem[]) {
+    for (let index = messages.length - 1; index >= 0; index--) {
+        if (isPlanMessage(messages[index])) return messages[index];
+    }
+}
+
+function isPlanMessage(message: AgentChatItem) {
+    return message.role === "tool" && objectField(message.detail, "kind") === "todo";
 }
 
 function parseToolResult(result: unknown) {
