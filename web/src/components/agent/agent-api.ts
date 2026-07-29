@@ -26,6 +26,10 @@ export async function postCodexApproval(endpoint: string, token: string, request
     await fetchAgentJson(endpoint, token, "/agent/codex/approval", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, decision }) });
 }
 
+export async function revealAgentLocalFile(endpoint: string, token: string, path: string) {
+    await fetchAgentJson(endpoint, token, "/agent/local-file/reveal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
+}
+
 export async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit) {
     const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
     const res = await fetch(url, init);

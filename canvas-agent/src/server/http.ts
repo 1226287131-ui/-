@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { runClaudeTurn } from "../agent/claude.js";
@@ -71,6 +74,13 @@ export function startHttpServer() {
         if (!data) throw new Error("图片附件内容无效");
         res.setHeader("Cache-Control", "no-store");
         res.type(attachment.type).send(Buffer.from(data, "base64"));
+    }));
+    app.post("/agent/local-file/reveal", route(async (req, res) => {
+        const filePath = String(req.body?.path || "");
+        if (!path.isAbsolute(filePath)) return res.status(400).json({ ok: false, error: "文件路径必须是绝对路径" });
+        const file = await stat(filePath);
+        await revealLocalFile(filePath, file.isDirectory());
+        res.json({ ok: true });
     }));
     app.post("/api/tools", route(async (req, res) => res.json({ ok: true, result: await session.callTool(req.body?.name, req.body?.input || {}) })));
     app.get("/agent/codex/workspace", (_req, res) => {
@@ -223,6 +233,24 @@ function routeParam(value: string | string[]) {
 
 function permissionMode(value: unknown): AgentPermissionMode {
     return value === "automatic" || value === "full" ? value : "request";
+}
+
+/** 使用当前操作系统的文件管理器定位本地文件。 */
+function revealLocalFile(filePath: string, isDirectory: boolean) {
+    const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer.exe" : "xdg-open";
+    const args = process.platform === "darwin"
+        ? ["-R", filePath]
+        : process.platform === "win32"
+            ? [isDirectory ? filePath : `/select,${filePath}`]
+            : [isDirectory ? filePath : path.dirname(filePath)];
+    return new Promise<void>((resolve, reject) => {
+        const child = spawn(command, args, { detached: true, stdio: "ignore" });
+        child.once("spawn", () => {
+            child.unref();
+            resolve();
+        });
+        child.once("error", reject);
+    });
 }
 
 /** 结合服务配置解析当前请求 URL。 */

@@ -1,14 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Image } from "antd";
-import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Wrench, XCircle } from "lucide-react";
-import { Streamdown } from "streamdown";
+import { App, Button, Image, Modal } from "antd";
+import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, ExternalLink, FilePenLine, FileText, FolderOpen, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Wrench, XCircle } from "lucide-react";
+import { Streamdown, type LinkSafetyModalProps } from "streamdown";
 
+import { useCopyText } from "@/hooks/use-copy-text";
 import { canvasThemes } from "@/lib/canvas-theme";
-import type { AgentPendingApproval } from "@/stores/use-agent-store";
+import { useAgentStore, type AgentPendingApproval } from "@/stores/use-agent-store";
+import { revealAgentLocalFile } from "./agent-api";
 
 const streamdownProps = {
     className: "agent-streamdown",
     controls: { code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } },
+    linkSafety: { enabled: true, renderModal: (props: LinkSafetyModalProps) => <AgentLinkModal {...props} /> },
     lineNumbers: false,
     translations: {
         close: "关闭",
@@ -20,6 +23,69 @@ const streamdownProps = {
         openLink: "继续打开",
     },
 } as const;
+
+function AgentLinkModal({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
+    const { message } = App.useApp();
+    const copyText = useCopyText();
+    const localPath = localFilePath(url);
+    const [opening, setOpening] = useState(false);
+    const open = async () => {
+        if (!localPath) return onConfirm();
+        const { url: endpoint, token } = useAgentStore.getState();
+        setOpening(true);
+        try {
+            await revealAgentLocalFile(endpoint, token, localPath);
+            message.success("已在文件管理器中定位");
+            onClose();
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "无法打开本地文件");
+        } finally {
+            setOpening(false);
+        }
+    };
+    return (
+        <Modal open={isOpen} onCancel={onClose} footer={null} centered width={420} title={localPath ? "打开本地文件？" : "打开外部链接？"}>
+            <div className="text-sm text-black/55 dark:text-white/55">
+                {localPath ? "将在本机文件管理器中定位该路径，不会通过浏览器打开。" : "即将打开以下外部链接，请确认链接可信。"}
+            </div>
+            <div className="mt-4 max-h-32 overflow-auto break-all rounded-lg bg-black/[.035] px-3 py-2.5 font-mono text-xs leading-5 dark:bg-white/[.06]">{localPath || url}</div>
+            <div className="mt-5 flex justify-end gap-2">
+                <Button type="text" icon={<Copy className="size-4" />} onClick={() => copyText(localPath || url, localPath ? "路径已复制" : "链接已复制")}>
+                    {localPath ? "复制路径" : "复制链接"}
+                </Button>
+                <Button type="text" loading={opening} icon={localPath ? <FolderOpen className="size-4" /> : <ExternalLink className="size-4" />} onClick={open}>
+                    {localPath ? "在文件管理器中显示" : "继续打开"}
+                </Button>
+            </div>
+        </Modal>
+    );
+}
+
+function localFilePath(value: string) {
+    let decoded = value;
+    try {
+        decoded = decodeURI(value);
+    } catch {}
+    if (decoded.startsWith("file://")) {
+        try {
+            return decodeURIComponent(new URL(decoded).pathname);
+        } catch {
+            return "";
+        }
+    }
+    if (/^[A-Za-z]:[\\/]/.test(decoded)) return decoded;
+    let pathname = decoded;
+    if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+        try {
+            const parsed = new URL(decoded);
+            if (!["localhost", "127.0.0.1"].includes(parsed.hostname)) return "";
+            pathname = parsed.pathname;
+        } catch {
+            return "";
+        }
+    }
+    return /^\/(?:Users|home|private|tmp|Volumes|var\/folders)\//.test(pathname) ? decodeURIComponent(pathname) : "";
+}
 
 export type AgentChatAttachment = { id: string; name: string; url: string };
 export type AgentChatMessageItem = {
