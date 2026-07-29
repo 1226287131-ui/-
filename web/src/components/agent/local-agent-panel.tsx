@@ -754,7 +754,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 return;
             }
         }
-        if (event.type === "item.completed" && event.item?.type === "dynamic_tool_call" && event.item.id) {
+        if (event.type === "item.completed" && event.item?.type === "image_generation" && event.item.id) {
             const generated = await importGeneratedImages(endpoint, token, event.item);
             if (generated.length) {
                 const context = canvasContextRef.current;

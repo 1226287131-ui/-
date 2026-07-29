@@ -68,6 +68,7 @@ export function threadMessages(thread: unknown, planUpdates: CodexPlanUpdate[] =
             }
             if (type === "webSearch") messages.push({ id, role: "tool", title: "搜索资料", text: webSearchSummary(item), detail: { kind: "search", status: "completed", rows: webSearchRows(item) } });
             if (type === "imageView") messages.push({ id, role: "tool", title: "查看图片", text: String(field(item, "path") || "已查看图片"), detail: { kind: "image", status: "completed" } });
+            if (type === "imageGeneration") messages.push({ id, role: "tool", title: "内置生图", text: String(field(item, "savedPath") || "图片生成完成"), detail: { kind: "image", status: field(item, "status"), savedPath: field(item, "savedPath") } });
             if (type === "contextCompaction") messages.push({ id, role: "tool", title: "整理上下文", text: "已整理当前对话，继续处理任务", detail: { kind: "context", status: "completed" } });
             if (type === "dynamicToolCall") messages.push({ id, role: "tool", title: "使用工具", text: "已完成工具操作", detail: { kind: "tool", status: field(item, "status") } });
             if (type === "collabToolCall") messages.push({ id, role: "tool", title: "协作处理", text: "已完成协作任务", detail: { kind: "tool", status: field(item, "status") } });

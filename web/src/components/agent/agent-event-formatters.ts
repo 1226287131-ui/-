@@ -41,6 +41,8 @@ export type AgentEventItem = {
     query?: unknown;
     action?: unknown;
     path?: unknown;
+    savedPath?: unknown;
+    revisedPrompt?: unknown;
 };
 export type AgentUserDetail = { kind: string; status: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }>; tasks?: Array<{ step: string; status: string }>; explanation?: string };
 
@@ -86,6 +88,7 @@ export function formatAgentActivity(event: AgentEventPayload): Omit<AgentChatIte
         return { role: "tool", title: "搜索资料", text: webSearchSummary(item), detail: { kind: "search", status, rows: webSearchDetailRows(item) } };
     }
     if (item.type === "image_view") return { role: "tool", title: "查看图片", text: stringText(item.path) || "正在查看图片", detail: { kind: "image", status } };
+    if (item.type === "image_generation") return { role: "tool", title: "内置生图", text: completed ? "图片生成完成" : "正在生成图片…", detail: { kind: "image", status } };
     if (item.type === "context_compaction") return { role: "tool", title: "整理上下文", text: completed ? "已整理当前对话，继续处理任务" : "正在整理当前对话…", detail: { kind: "context", status } };
     if (isMcpToolItem(item) && isReadTool(String(item.tool || ""))) {
         const name = String(item.tool || "");

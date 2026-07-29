@@ -392,6 +392,7 @@ function normalizeItem(item: unknown) {
     if (value.type === "collabToolCall") value.type = "collab_tool_call";
     if (value.type === "webSearch") value.type = "web_search";
     if (value.type === "imageView") value.type = "image_view";
+    if (value.type === "imageGeneration") value.type = "image_generation";
     if (value.type === "contextCompaction") value.type = "context_compaction";
     if (value.type === "agent_message" && typeof value.id === "string") value.text = String(value.text || "");
     if ("arguments" in value) value.arguments = parseMaybeJson(value.arguments);
