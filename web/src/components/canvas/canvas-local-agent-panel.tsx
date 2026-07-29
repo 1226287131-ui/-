@@ -829,6 +829,7 @@ function AgentChatTimeline({
     const followMessagesRef = useRef(true);
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
     const streaming = messages.some((message) => message.streamId);
+    const activePlan = sending || waiting ? currentPlanMessage(messages) : undefined;
     const working = workingActivity(messages.at(-1));
     const updateScrollState = useCallback(() => {
         const list = listRef.current;
@@ -849,10 +850,15 @@ function AgentChatTimeline({
         return () => cancelAnimationFrame(frame);
     }, [messages, pendingTool, scrollToBottom, updateScrollState, waiting]);
     return (
-        <div className="relative min-h-0 flex-1">
-            <div ref={listRef} className="thin-scrollbar h-full space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+            {activePlan ? (
+                <div className="relative z-10 shrink-0 px-4 pb-2 pt-4">
+                    <AgentChatMessageRow item={activePlan} theme={theme} user={user} />
+                </div>
+            ) : null}
+            <div ref={listRef} className={`thin-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-12 ${activePlan ? "pt-2" : "pt-4"}`} onScroll={updateScrollState}>
                 {messages.map((item) => (
-                    <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
+                    item.id === activePlan?.id ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} user={user} />
                 ))}
                 {pendingTool ? (
                     <AgentPendingToolCard
@@ -1595,6 +1601,14 @@ function workingActivity(item?: AgentChatItem) {
     if (["inProgress", "in_progress", "running", "pending"].includes(status)) return { key, text: `${item.title || "工具操作"}正在进行...` };
     if (item.title === "读取画布") return { key, text: "画布已读取，Codex 正在整理结果..." };
     return { key, text: `${item.title || "工具操作"}已完成，Codex 正在继续处理...` };
+}
+
+function currentPlanMessage(messages: AgentChatItem[]) {
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index];
+        if (message.role === "tool" && objectField(message.detail, "kind") === "todo") return message;
+        if (message.role === "user") return;
+    }
 }
 
 function parseToolResult(result: unknown) {
