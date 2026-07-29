@@ -47,7 +47,8 @@ export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?:
     const thread = await app.resumeThread(threadId, cwd);
     assertThreadWorkspace(thread, cwd);
     codexThreadId = String(field(thread, "id") || threadId);
-    return { thread, messages: threadMessages(thread, app.planUpdates(threadId)) };
+    const historyThread = await loadCodexThread(emit, codexThreadId, cwd, true);
+    return { thread, messages: threadMessages(historyThread, app.planUpdates(threadId)) };
 }
 
 /** 查询当前工作空间中的 Codex 线程。 */

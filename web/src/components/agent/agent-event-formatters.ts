@@ -487,3 +487,15 @@ export function mergeHistoryAttachments(messages: AgentChatItem[], currentMessag
         })
         .reverse();
 }
+
+export function mergeHistoryMessages(historyMessages: AgentChatItem[], currentMessages: AgentChatItem[]) {
+    if (!currentMessages.length) return historyMessages;
+    const remaining = [...historyMessages];
+    const messages = currentMessages.map((current) => {
+        const index = remaining.findIndex((history) => history.id === current.id || ((current.role === "user" || current.role === "assistant") && history.role === current.role && history.text === current.text));
+        if (index < 0) return current;
+        const history = remaining.splice(index, 1)[0];
+        return { ...current, ...history, id: current.id, attachments: current.attachments || history.attachments };
+    });
+    return [...messages, ...remaining];
+}

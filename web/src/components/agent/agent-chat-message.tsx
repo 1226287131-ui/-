@@ -121,7 +121,9 @@ function AgentReasoningSummary({ text, detail, theme }: { text: string; detail?:
                     <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
                 </div>
             </summary>
-            <div className="whitespace-pre-wrap break-words pb-1 pl-6 pr-2 text-xs leading-5" style={{ color: theme.node.muted }}>{text}</div>
+            <div className="break-words pb-1 pl-6 pr-2 text-xs leading-5 [&_code]:rounded [&_code]:px-1 [&_p]:my-1 [&_pre]:my-2" style={{ color: theme.node.muted }}>
+                <Streamdown animated isAnimating={running}>{text}</Streamdown>
+            </div>
         </details>
     );
 }

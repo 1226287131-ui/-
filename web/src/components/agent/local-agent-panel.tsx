@@ -38,6 +38,7 @@ import {
     isConnectionErrorMessage,
     isCurrentThreadEvent,
     mergeHistoryAttachments,
+    mergeHistoryMessages,
     mergeAgentText,
     normalizeHistoryMessages,
     normalizeText,
@@ -131,7 +132,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 let thread = await currentThreadRequest;
                 thread ||= await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(currentThreadId)}`);
                 const storedMessages = (await storedMessagesRequest) || [];
-                nextMessages = mergeHistoryAttachments(normalizeHistoryMessages(thread.messages || []), [...storedMessages, ...useAgentStore.getState().messages]);
+                const currentMessages = useAgentStore.getState().messages;
+                nextMessages = mergeHistoryMessages(mergeHistoryAttachments(normalizeHistoryMessages(thread.messages || []), [...storedMessages, ...currentMessages]), currentMessages);
             }
             if (sequence !== loadThreadsSequenceRef.current) return;
             setAgentState({ threads: data.data || [], workspacePath: data.workspace?.workspacePath || "", ...(skipHistory ? {} : { messages: nextMessages }) });
