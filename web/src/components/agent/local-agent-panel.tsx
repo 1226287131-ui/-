@@ -12,10 +12,10 @@ import { uploadImage } from "@/services/image-storage";
 import { deleteAgentThreadMessages, readAgentUserMessages, saveAgentUserMessage } from "@/services/agent-chat-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useShallow } from "zustand/react/shallow";
-import { useAgentStore, type AgentCanvasContext, type AgentChatItem, type AgentPendingToolCall, type AgentThreadSummary } from "@/stores/use-agent-store";
+import { useAgentStore, type AgentCanvasContext, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentPermissionMode, type AgentThreadSummary } from "@/stores/use-agent-store";
 import {summarizeCanvasAgentOps, type CanvasAgentOp, CanvasAgentSnapshot} from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool } from "@/lib/agent/agent-site-tools";
-import { activateAgentClient, discoverAgentConfig, fetchAgentJson, postState, postToolResult } from "./agent-api";
+import { activateAgentClient, discoverAgentConfig, fetchAgentJson, postCodexApproval, postState, postToolResult } from "./agent-api";
 import { AgentChatTimeline, AgentTaskProgress, AgentUsageBar } from "./agent-chat";
 import { AgentChatComposer } from "./agent-chat-composer";
 import { AgentConnectView } from "./agent-connect-view";
@@ -78,7 +78,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     // 注意：canvasContext 不在此订阅内 —— 它在拖拽/resize 时会被 project 每帧写入，
     // 但面板只在 ref 同步与防抖 postState 中用到它、渲染层从不读它。若把它放进订阅，
     // 面板会随画布每帧重渲染（性能问题，也是 #185 崩溃的放大器）。改为下方 subscribe 命令式监听。
-    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, tokenUsage, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool } = useAgentStore(
+    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, tokenUsage, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, permissionMode, activity, connectError, pendingTool, pendingApprovals } = useAgentStore(
         useShallow((state) => ({
             width: state.width,
             url: state.url,
@@ -97,9 +97,11 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             loadingThreads: state.loadingThreads,
             activeTab: state.activeTab,
             confirmTools: state.confirmTools,
+            permissionMode: state.permissionMode,
             activity: state.activity,
             connectError: state.connectError,
             pendingTool: state.pendingTool,
+            pendingApprovals: state.pendingApprovals,
         })),
     );
     const setAgentState = useAgentStore((state) => state.setAgentState);
@@ -198,6 +200,16 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             const data = parseEventData<AgentPendingToolCall>(event);
             if (data) void handleToolCall(endpoint, token, data);
         });
+        source.addEventListener("codex_approval", (event) => {
+            const data = parseEventData<AgentPendingApproval>(event);
+            if (!data || !isCurrentThreadEvent(data)) return;
+            setAgentState({ pendingApprovals: [...useAgentStore.getState().pendingApprovals.filter((item) => item.requestId !== data.requestId), data], activity: "等待权限确认" });
+            addEventLog("等待权限确认", data.reason || data.method, data);
+        });
+        source.addEventListener("codex_approval_resolved", (event) => {
+            const data = parseEventData<{ requestId?: string }>(event);
+            if (data?.requestId) setAgentState({ pendingApprovals: useAgentStore.getState().pendingApprovals.filter((item) => item.requestId !== data.requestId) });
+        });
         source.addEventListener("agent_event", (event) => {
             const data = parseEventData<AgentEventPayload>(event);
             if (data) enqueueEvent(() => {
@@ -212,7 +224,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 const current = useAgentStore.getState();
                 const keepPendingMessage = Boolean(data.emptyThread && current.sending && current.activeThreadId === nextThreadId);
                 pendingToolRef.current = null;
-                setAgentState({ activeThreadId: nextThreadId, ...(keepPendingMessage ? {} : { messages: [] }), tokenUsage: null, pendingTool: null });
+                setAgentState({ activeThreadId: nextThreadId, ...(keepPendingMessage ? {} : { messages: [] }), tokenUsage: null, pendingTool: null, pendingApprovals: [] });
                 await loadThreads(Boolean(data.emptyThread));
             });
         });
@@ -291,7 +303,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         let threadId = useAgentStore.getState().activeThreadId;
         try {
             if (!threadId) {
-                const created = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+                const created = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ permissionMode }) });
                 threadId = created.thread?.id || created.workspace?.activeThreadId || "";
                 if (!threadId) throw new Error("新建对话失败");
                 setAgentState({ activeThreadId: threadId, messages: [], tokenUsage: null });
@@ -308,6 +320,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     messageId,
                     clientId: clientIdRef.current,
                     threadId,
+                    permissionMode,
                     attachments: files.map(({ id, name, type, size, width, height, dataUrl }) => ({ id, name, type, size, width, height, dataUrl })),
                 }),
             });
@@ -462,6 +475,33 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         await runToolCall(endpoint, token, tool);
     };
 
+    const decideApproval = async (approval: AgentPendingApproval, decision: "accept" | "acceptForSession" | "decline") => {
+        setAgentState({ pendingApprovals: useAgentStore.getState().pendingApprovals.filter((item) => item.requestId !== approval.requestId), activity: decision === "decline" ? "已拒绝权限请求" : "Codex 正在运行" });
+        try {
+            await postCodexApproval(endpoint, token, approval.requestId, decision);
+            addEventLog(decision === "decline" ? "已拒绝权限" : "已批准权限", approval.reason || approval.method, approval);
+        } catch (error) {
+            addEventLog("权限审批失败", error);
+            message.error(error instanceof Error ? error.message : "权限审批失败");
+        }
+    };
+
+    const changePermissionMode = (nextMode: AgentPermissionMode) => {
+        const apply = () => {
+            localStorage.setItem("canvas-agent-permission-mode", nextMode);
+            setAgentState({ permissionMode: nextMode });
+        };
+        if (nextMode !== "full") return apply();
+        modal.confirm({
+            title: "启用完全访问权限",
+            content: "Codex 将不受沙箱限制，可访问互联网及本机任意文件。请仅在信任当前任务时使用。",
+            okText: "启用完全访问",
+            okType: "danger",
+            cancelText: "取消",
+            onOk: apply,
+        });
+    };
+
     const toggleAgentConnection = async ({ silent = false }: { silent?: boolean } = {}) => {
         if (enabled) {
             clearAgentSession({ enabled: false, connected: false, activity: "离线", connectError: "" });
@@ -525,6 +565,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             waiting: false,
             sending: false,
             pendingTool: null,
+            pendingApprovals: [],
             ...patch,
         });
         pendingToolRef.current = null;
@@ -534,7 +575,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         if (!connected || sending || waiting) return;
         setAgentState({ loadingThreads: true });
         try {
-            const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+            const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ permissionMode }) });
             setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], tokenUsage: null, activeTab: "chat", activity: "新对话" });
         } catch (error) {
             addEventLog("新建对话失败", error);
@@ -550,7 +591,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         try {
             const current = useAgentStore.getState();
             const [data, storedMessages] = await Promise.all([
-                fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }),
+                fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ permissionMode }) }),
                 readAgentUserMessages(threadId),
             ]);
             const localMessages = current.activeThreadId === threadId ? current.messages : [];
@@ -799,7 +840,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 />
             ) : (
                 <>
-                    <AgentChatTimeline theme={theme} pendingTool={pendingTool} sending={sending} waiting={waiting} onRejectTool={rejectPendingTool} onApproveTool={approvePendingTool} />
+                    <AgentChatTimeline theme={theme} pendingTool={pendingTool} pendingApprovals={pendingApprovals} sending={sending} waiting={waiting} onRejectTool={rejectPendingTool} onApproveTool={approvePendingTool} onApprovalDecision={decideApproval} />
                     <AgentTaskProgress theme={theme} busy={sending || waiting} />
                     {tokenUsage ? <AgentUsageBar usage={tokenUsage} theme={theme} /> : null}
                     <AgentChatComposer
@@ -816,6 +857,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                         onRemoveAttachment={removeAttachment}
                         confirmTools={confirmTools}
                         onConfirmToolsChange={(confirmTools) => setAgentState({ confirmTools })}
+                        permissionMode={permissionMode}
+                        onPermissionModeChange={changePermissionMode}
                         left={
                             attachments.length ? (
                                 <span className="text-[11px]" style={{ color: theme.node.muted }}>

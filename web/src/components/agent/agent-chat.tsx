@@ -5,8 +5,8 @@ import { motion, useSpring, useTransform } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
-import { useAgentStore, type AgentChatItem, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
-import { AgentChatMessage, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
+import { useAgentStore, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
+import { AgentApprovalCard, AgentChatMessage, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
 import { agentMessageToChatMessage, currentPlanMessage, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
@@ -14,17 +14,21 @@ const SCROLL_BOTTOM_THRESHOLD = 48;
 export function AgentChatTimeline({
     theme,
     pendingTool,
+    pendingApprovals,
     sending,
     waiting,
     onRejectTool,
     onApproveTool,
+    onApprovalDecision,
 }: {
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     pendingTool: AgentPendingToolCall | null;
+    pendingApprovals: AgentPendingApproval[];
     sending: boolean;
     waiting: boolean;
     onRejectTool: () => void;
     onApproveTool: () => void;
+    onApprovalDecision: (approval: AgentPendingApproval, decision: "accept" | "acceptForSession" | "decline") => void;
 }) {
     const messages = useAgentStore((state) => state.messages);
     const listRef = useRef<HTMLDivElement>(null);
@@ -49,7 +53,7 @@ export function AgentChatTimeline({
     useEffect(() => {
         const frame = requestAnimationFrame(() => (followMessagesRef.current ? scrollToBottom("auto") : updateScrollState()));
         return () => cancelAnimationFrame(frame);
-    }, [messages, pendingTool, scrollToBottom, updateScrollState, waiting]);
+    }, [messages, pendingApprovals, pendingTool, scrollToBottom, updateScrollState, waiting]);
     return (
         <div className="relative min-h-0 flex-1">
             <div ref={listRef} className="thin-scrollbar h-full select-text space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
@@ -65,7 +69,8 @@ export function AgentChatTimeline({
                         onApprove={onApproveTool}
                     />
                 ) : null}
-                {(sending || waiting) && !streaming && !pendingTool ? <AgentWorkingMessage text={working.text} activityKey={working.key} theme={theme} /> : null}
+                {pendingApprovals.map((approval) => <AgentApprovalCard key={approval.requestId} approval={approval} theme={theme} onDecision={(decision) => onApprovalDecision(approval, decision)} />)}
+                {(sending || waiting) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} activityKey={working.key} theme={theme} /> : null}
             </div>
             {showScrollToBottom ? (
                 <Tooltip title="滚动到底部" placement="left">

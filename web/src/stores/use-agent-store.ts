@@ -7,6 +7,8 @@ export type AgentAttachment = { id: string; name: string; type: string; size: nu
 export type AgentChatItem = { id: string; role: AgentChatRole; title?: string; text: string; historyText?: string; meta?: string; detail?: unknown; attachments?: AgentAttachment[]; streamId?: string };
 export type AgentEventLog = { id: string; time: string; title: string; text: string; raw?: unknown };
 export type AgentPendingToolCall = { requestId: string; name: string; input?: { ops?: CanvasAgentOp[]; path?: string } & Record<string, unknown> };
+export type AgentPermissionMode = "request" | "automatic" | "full";
+export type AgentPendingApproval = { requestId: string; method: string; threadId?: string; turnId?: string; itemId?: string; reason?: string; command?: unknown; cwd?: string; grantRoot?: string; networkApprovalContext?: unknown; permissions?: unknown };
 export type AgentCanvasContext = { snapshot: CanvasAgentSnapshot; applyOps: (ops?: CanvasAgentOp[]) => CanvasAgentSnapshot; undoOps: () => CanvasAgentSnapshot | null; canUndo: boolean };
 export type AgentThreadSummary = { id: string; preview: string; name?: string | null; cwd?: string; status?: string; source?: unknown; createdAt?: number; updatedAt?: number };
 export type AgentTokenUsage = { input: number; cached: number; output: number };
@@ -40,9 +42,11 @@ type AgentStore = {
     loadingThreads: boolean;
     activeTab: AgentPanelTab;
     confirmTools: boolean;
+    permissionMode: AgentPermissionMode;
     activity: string;
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
+    pendingApprovals: AgentPendingApproval[];
     setAgentState: (patch: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext">>) => void;
     openPanel: () => void;
     closePanel: () => void;
@@ -81,9 +85,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     loadingThreads: false,
     activeTab: "setup",
     confirmTools: false,
+    permissionMode: typeof window === "undefined" ? "request" : (localStorage.getItem("canvas-agent-permission-mode") as AgentPermissionMode) || "request",
     activity: "就绪",
     connectError: "",
     pendingTool: null,
+    pendingApprovals: [],
     setAgentState: (patch) => set(patch),
     openPanel: () => set({ panelOpen: true, panelMounted: true, panelClosing: false }),
     closePanel: () => {

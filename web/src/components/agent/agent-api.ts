@@ -22,6 +22,10 @@ export async function postToolResult(endpoint: string, token: string, clientId: 
     await fetch(`${endpoint}/canvas/result?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 
+export async function postCodexApproval(endpoint: string, token: string, requestId: string, decision: "accept" | "acceptForSession" | "decline") {
+    await fetchAgentJson(endpoint, token, "/agent/codex/approval", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, decision }) });
+}
+
 export async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit) {
     const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
     const res = await fetch(url, init);
@@ -40,4 +44,3 @@ export async function discoverAgentConfig(endpoint: string) {
         return null;
     }
 }
-

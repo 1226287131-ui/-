@@ -12,8 +12,8 @@ export type CodexTurnInput =
     | { type: "localImage"; path: string };
 
 type ThreadOptions = {
-    approvalPolicy: "never";
-    sandbox: "workspace-write";
+    approvalPolicy: "never" | "onRequest";
+    sandbox: "workspaceWrite" | "dangerFullAccess";
     config: JsonRecord;
     cwd?: string;
 };
@@ -54,7 +54,7 @@ type CodexRequestSpec = {
         result: Record<string, never>;
     };
     "turn/start": {
-        params: { threadId: string; input: CodexTurnInput[]; approvalPolicy: "never" };
+        params: { threadId: string; input: CodexTurnInput[]; approvalPolicy: "never" | "onRequest"; sandboxPolicy: { type: "workspaceWrite"; networkAccess: boolean } | { type: "dangerFullAccess" } };
         result: { turn: CodexTurn };
     };
     "turn/interrupt": {

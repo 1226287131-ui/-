@@ -7,7 +7,7 @@ import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
 import type { CodexNotificationParams, CodexPlanUpdate, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
-import type { AgentEmit } from "./types.js";
+import type { AgentEmit, AgentPermissionMode } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
@@ -31,6 +31,7 @@ export class CodexAppClient {
     private completedTurns = new Map<string, Error | null>();
     private pendingDeltas = new Map<string, PendingDelta>();
     private plansByTurn = new Map<string, CodexPlanUpdate>();
+    private approvalRequests = new Map<string, { id: number; method: string; params: JsonRecord }>();
 
     /** 保存 app-server 子进程和事件出口。 */
     private constructor(private child: ChildProcess, private emit: AgentEmit) {}
@@ -62,15 +63,15 @@ export class CodexAppClient {
     }
 
     /** 创建新的 Codex 线程。 */
-    async startThread(cwd?: string) {
-        const { thread } = await this.request("thread/start", { approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}), threadSource: "user" });
+    async startThread(cwd?: string, permissionMode: AgentPermissionMode = "request") {
+        const { thread } = await this.request("thread/start", { ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}), threadSource: "user" });
         if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
         return thread;
     }
 
     /** 恢复已有 Codex 线程。 */
-    async resumeThread(threadId: string, cwd?: string) {
-        const { thread } = await this.request("thread/resume", { threadId, approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}) });
+    async resumeThread(threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request") {
+        const { thread } = await this.request("thread/resume", { threadId, ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}) });
         if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
         return thread;
     }
@@ -103,9 +104,9 @@ export class CodexAppClient {
     }
 
     /** 启动一个 Codex turn 并等待完成通知。 */
-    async startTurn(threadId: string, prompt: string, images: string[], onTurn?: (turnId: string) => void) {
+    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, onTurn?: (turnId: string) => void) {
         this.currentThreadId = threadId;
-        const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), approvalPolicy: "never" });
+        const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), ...turnSettings(permissionMode) });
         const turnId = turn.id;
         if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
         this.currentTurnId = turnId;
@@ -134,6 +135,19 @@ export class CodexAppClient {
             logger.warn("Failed to interrupt Codex turn", { error, threadId, turnId });
             return false;
         }
+    }
+
+    /** 回复网页端已经确认的 Codex 权限请求。 */
+    resolveApproval(requestId: string, decision: string) {
+        const request = this.approvalRequests.get(requestId);
+        if (!request) return false;
+        this.approvalRequests.delete(requestId);
+        const permissions = field(request.params, "permissions") || field(request.params, "requestedPermissions");
+        const result = request.method === "item/permissions/requestApproval"
+            ? { permissions: decision === "decline" ? {} : permissions || {}, scope: decision === "acceptForSession" ? "session" : "turn" }
+            : { decision };
+        this.write({ id: request.id, result });
+        return true;
     }
 
     /** 发送 JSON-RPC 请求并保存待处理 Promise。 */
@@ -187,6 +201,12 @@ export class CodexAppClient {
 
     /** 转换并广播 app-server 通知。 */
     private handleNotification(method: string, params: JsonRecord) {
+        if (method === "serverRequest/resolved") {
+            const requestId = String(field(params, "requestId") || "");
+            if (requestId) this.approvalRequests.delete(requestId);
+            this.emit("codex_approval_resolved", { requestId, ...params });
+            return;
+        }
         if (!field(params, "threadId") && this.currentThreadId && (method === "turn/started" || method === "turn/completed" || method === "turn/plan/updated")) params = { ...params, threadId: this.currentThreadId };
         if (method === "item/agentMessage/delta") {
             const value = params as unknown as CodexNotificationParams<"item/agentMessage/delta">;
@@ -274,9 +294,16 @@ export class CodexAppClient {
     /** 自动回复 app-server 发起的授权或交互请求。 */
     private answerServerRequest(message: JsonRecord) {
         const method = String(message.method);
+        const params = (field(message, "params") as JsonRecord) || {};
+        if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(method)) {
+            const requestId = String(message.id);
+            this.approvalRequests.set(requestId, { id: Number(message.id), method, params });
+            this.emit("codex_approval", { requestId, method, ...params });
+            return;
+        }
         const result = method === "mcpServer/elicitation/request" ? { action: "accept", content: {}, _meta: null } : { decision: "decline" };
         this.write({ id: message.id, result });
-        this.emit("agent_event", { agent: "codex", type: "server.request", method, params: message.params, result });
+        this.emit("agent_event", { agent: "codex", type: "server.request", method, params, result });
     }
 
     /** 完成指定 JSON-RPC 请求。 */
@@ -299,6 +326,7 @@ export class CodexAppClient {
         this.activeTurns.clear();
         this.pendingDeltas.clear();
         this.textByItem.clear();
+        this.approvalRequests.clear();
         this.currentThreadId = "";
         this.currentTurnId = "";
     }
@@ -313,8 +341,19 @@ function canvasAgentMcpCommand() {
 }
 
 /** 生成 Codex app-server 使用的 MCP 配置。 */
-function codexConfig() {
-    return { model_reasoning_summary: "auto", mcp_servers: { "infinite-canvas": { command: canvasAgentMcp.command, args: canvasAgentMcp.args, default_tools_approval_mode: "approve", startup_timeout_sec: 20, tool_timeout_sec: 90 } } };
+function codexConfig(permissionMode: AgentPermissionMode) {
+    return { model_reasoning_summary: "auto", ...(permissionMode === "automatic" ? { approvals_reviewer: "auto_review" } : {}), mcp_servers: { "infinite-canvas": { command: canvasAgentMcp.command, args: canvasAgentMcp.args, default_tools_approval_mode: "approve", startup_timeout_sec: 20, tool_timeout_sec: 90 } } };
+}
+
+function threadSettings(permissionMode: AgentPermissionMode) {
+    return { approvalPolicy: permissionMode === "full" ? "never" as const : "onRequest" as const, sandbox: permissionMode === "full" ? "dangerFullAccess" as const : "workspaceWrite" as const, config: codexConfig(permissionMode) };
+}
+
+function turnSettings(permissionMode: AgentPermissionMode) {
+    return {
+        approvalPolicy: permissionMode === "full" ? "never" as const : "onRequest" as const,
+        sandboxPolicy: permissionMode === "full" ? { type: "dangerFullAccess" as const } : { type: "workspaceWrite" as const, networkAccess: false },
+    };
 }
 
 /** 将文本和本地图片转换为 Codex turn 输入。 */

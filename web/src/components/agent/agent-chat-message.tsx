@@ -1,9 +1,25 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Image } from "antd";
-import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, Wrench, XCircle } from "lucide-react";
+import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Wrench, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import type { AgentPendingApproval } from "@/stores/use-agent-store";
+
+const streamdownProps = {
+    className: "agent-streamdown",
+    controls: { code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } },
+    lineNumbers: false,
+    translations: {
+        close: "关闭",
+        copied: "已复制",
+        copyCode: "复制代码",
+        copyLink: "复制链接",
+        externalLinkWarning: "即将打开以下外部链接，请确认链接可信。",
+        openExternalLink: "打开外部链接？",
+        openLink: "继续打开",
+    },
+} as const;
 
 export type AgentChatAttachment = { id: string; name: string; url: string };
 export type AgentChatMessageItem = {
@@ -45,7 +61,7 @@ export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: {
                 {isUser ? (
                     <div className="whitespace-pre-wrap break-words">{item.text}</div>
                 ) : (
-                    <Streamdown animated isAnimating={!!item.streamId}>{item.text}</Streamdown>
+                    <Streamdown {...streamdownProps} animated isAnimating={!!item.streamId}>{item.text}</Streamdown>
                 )}
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} alignRight={isUser} /> : null}
                 {item.meta ? <div className={`mt-1 text-[11px] tabular-nums opacity-55 ${isUser ? "text-right" : ""}`}>{item.meta}</div> : null}
@@ -79,6 +95,30 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
                     </Button>
                 </div>
             ) : null}
+        </div>
+    );
+}
+
+export function AgentApprovalCard({ approval, theme, onDecision }: { approval: AgentPendingApproval; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onDecision: (decision: "accept" | "acceptForSession" | "decline") => void }) {
+    const isFile = approval.method === "item/fileChange/requestApproval";
+    const isNetwork = Boolean(approval.networkApprovalContext);
+    const title = isNetwork ? "请求网络访问" : isFile ? "请求编辑文件" : approval.method === "item/permissions/requestApproval" ? "请求扩展权限" : "请求执行命令";
+    const target = isNetwork ? approvalTarget(approval.networkApprovalContext) : isFile ? approval.grantRoot || approval.cwd : commandText(approval.command) || approval.cwd;
+    return (
+        <div className="min-w-0 rounded-xl border px-3 py-3" style={{ borderColor: "rgba(234,88,12,.32)", background: "rgba(234,88,12,.035)", color: theme.node.text }}>
+            <div className="flex items-start gap-2.5">
+                <ShieldAlert className="mt-0.5 size-4 shrink-0 text-orange-600" />
+                <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{title}</div>
+                    {approval.reason ? <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>{approval.reason}</div> : null}
+                    {target ? <div className="mt-1.5 break-all rounded-lg px-2.5 py-2 font-mono text-[11px] leading-4" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{target}</div> : null}
+                </div>
+            </div>
+            <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t pt-3" style={{ borderColor: theme.node.stroke }}>
+                <Button danger type="text" className="!h-8" onClick={() => onDecision("decline")}>拒绝</Button>
+                <Button type="text" className="!h-8" onClick={() => onDecision("accept")}>允许一次</Button>
+                <Button type="text" className="!h-8" style={{ color: "#ea580c" }} onClick={() => onDecision("acceptForSession")}>本会话允许</Button>
+            </div>
         </div>
     );
 }
@@ -122,7 +162,7 @@ function AgentReasoningSummary({ text, detail, theme }: { text: string; detail?:
                 </div>
             </summary>
             <div className="break-words pb-1 pl-6 pr-2 text-xs leading-5 [&_code]:rounded [&_code]:px-1 [&_p]:my-1 [&_pre]:my-2" style={{ color: theme.node.muted }}>
-                <Streamdown animated isAnimating={running}>{text}</Streamdown>
+                <Streamdown {...streamdownProps} animated isAnimating={running}>{text}</Streamdown>
             </div>
         </details>
     );
@@ -203,6 +243,18 @@ function waitingTime(seconds: number) {
     if (seconds < 60) return `已等待 ${seconds} 秒`;
     const minutes = Math.floor(seconds / 60);
     return `已等待 ${minutes} 分 ${seconds % 60} 秒`;
+}
+
+function commandText(value: unknown) {
+    if (Array.isArray(value)) return value.map(String).join(" ");
+    return typeof value === "string" ? value : "";
+}
+
+function approvalTarget(value: unknown) {
+    const host = String(objectField(value, "host") || "");
+    const protocol = String(objectField(value, "protocol") || "");
+    const port = String(objectField(value, "port") || "");
+    return host ? `${protocol ? `${protocol}://` : ""}${host}${port ? `:${port}` : ""}` : "";
 }
 
 type PlanTask = { step: string; status: string };

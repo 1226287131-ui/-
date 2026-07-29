@@ -6,9 +6,9 @@ import { logger } from "../utils/logger.js";
 import { errorMessage, field } from "../utils/value.js";
 import { CodexAppClient } from "./codex-client.js";
 import { summarizeCodexThread, threadMessages } from "./codex-history.js";
-import type { AgentAttachment, AgentEmit } from "./types.js";
+import type { AgentAttachment, AgentEmit, AgentPermissionMode } from "./types.js";
 
-type CodexRunOptions = { threadId?: string; cwd?: string; appEmit?: AgentEmit; onStart?: () => void; onThread?: (threadId: string) => void; onTurn?: (turnId: string) => void; onFinish?: () => void };
+type CodexRunOptions = { threadId?: string; cwd?: string; permissionMode?: AgentPermissionMode; appEmit?: AgentEmit; onStart?: () => void; onThread?: (threadId: string) => void; onTurn?: (turnId: string) => void; onFinish?: () => void };
 
 let codexQueue: Promise<unknown> = Promise.resolve();
 let codexApp: CodexAppClient | null = null;
@@ -31,20 +31,25 @@ export async function interruptCodexTurn(threadId?: string) {
     return await codexApp.interruptCurrentTurn();
 }
 
+/** 回复当前 app-server 的待处理权限请求。 */
+export async function resolveCodexApproval(requestId: string, decision: string) {
+    return Boolean(codexApp?.resolveApproval(requestId, decision));
+}
+
 /** 创建新的 Codex 线程并记录当前线程 ID。 */
-export async function startCodexThread(emit: AgentEmit, cwd?: string) {
+export async function startCodexThread(emit: AgentEmit, cwd?: string, permissionMode: AgentPermissionMode = "request") {
     const app = await getCodexApp(emit);
-    const thread = await app.startThread(cwd);
+    const thread = await app.startThread(cwd, permissionMode);
     codexThreadId = String(field(thread, "id") || "");
     if (codexThreadId) unmaterializedThreadIds.add(codexThreadId);
     return thread;
 }
 
 /** 恢复指定 Codex 线程并返回聊天历史。 */
-export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
+export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request") {
     const app = await getCodexApp(emit);
     await loadCodexThread(emit, threadId, cwd, false);
-    const thread = await app.resumeThread(threadId, cwd);
+    const thread = await app.resumeThread(threadId, cwd, permissionMode);
     assertThreadWorkspace(thread, cwd);
     codexThreadId = String(field(thread, "id") || threadId);
     const historyThread = await loadCodexThread(emit, codexThreadId, cwd, true);
@@ -110,7 +115,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
         options.onThread?.(threadId);
         unmaterializedThreadIds.delete(threadId);
         try {
-            await app.startTurn(threadId, prompt, files, options.onTurn);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.onTurn);
         } catch (error) {
             if (!isRecoverableThreadError(error)) throw error;
             emit("agent_log", { text: `Codex thread unavailable, starting a new thread: ${errorMessage(error)}` });
@@ -118,7 +123,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
             threadId = await ensureCodexThread(app, { cwd: options.cwd }, emit);
             options.onThread?.(threadId);
             unmaterializedThreadIds.delete(threadId);
-            await app.startTurn(threadId, prompt, files, options.onTurn);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.onTurn);
         }
     } catch (error) {
         logger.error("Codex turn failed", error);
@@ -136,7 +141,7 @@ async function ensureCodexThread(app: CodexAppClient, options: CodexRunOptions, 
         try {
             const result = await app.readThread(options.threadId, false);
             assertThreadWorkspace(field(result, "thread") || {}, options.cwd);
-            const thread = await app.resumeThread(options.threadId, options.cwd);
+            const thread = await app.resumeThread(options.threadId, options.cwd, options.permissionMode || "request");
             assertThreadWorkspace(thread, options.cwd);
             codexThreadId = String(field(thread, "id") || options.threadId);
             return codexThreadId;
@@ -146,7 +151,7 @@ async function ensureCodexThread(app: CodexAppClient, options: CodexRunOptions, 
         }
     }
     if (!codexThreadId) {
-        const thread = await app.startThread(options.cwd);
+        const thread = await app.startThread(options.cwd, options.permissionMode || "request");
         codexThreadId = String(field(thread, "id") || "");
         if (codexThreadId) unmaterializedThreadIds.add(codexThreadId);
     }

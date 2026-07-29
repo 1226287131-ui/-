@@ -1,9 +1,10 @@
 import { useRef, type ReactNode } from "react";
 import { Button, Dropdown, Tooltip } from "antd";
-import { ArrowUp, Check, ChevronUp, Hand, ImagePlus, LoaderCircle, RefreshCw, Square, X } from "lucide-react";
+import { ArrowUp, Check, ChevronUp, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isPlainEnterKey } from "@/lib/keyboard-event";
+import type { AgentPermissionMode } from "@/stores/use-agent-store";
 import type { AgentChatAttachment } from "./agent-chat-message";
 
 export function AgentChatComposer({
@@ -20,6 +21,8 @@ export function AgentChatComposer({
     onRemoveAttachment,
     confirmTools,
     onConfirmToolsChange,
+    permissionMode,
+    onPermissionModeChange,
     left,
 }: {
     prompt: string;
@@ -35,6 +38,8 @@ export function AgentChatComposer({
     onRemoveAttachment?: (id: string) => void;
     confirmTools?: boolean;
     onConfirmToolsChange?: (confirmTools: boolean) => void;
+    permissionMode?: AgentPermissionMode;
+    onPermissionModeChange?: (permissionMode: AgentPermissionMode) => void;
     left?: ReactNode;
 }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +94,7 @@ export function AgentChatComposer({
                             </>
                         ) : null}
                         {onConfirmToolsChange ? <ToolConfirmationMenu confirmTools={Boolean(confirmTools)} theme={theme} onChange={onConfirmToolsChange} /> : null}
+                        {permissionMode && onPermissionModeChange ? <PermissionModeMenu permissionMode={permissionMode} theme={theme} onChange={onPermissionModeChange} /> : null}
                         {left}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -103,6 +109,35 @@ export function AgentChatComposer({
         </div>
     );
 }
+
+function PermissionModeMenu({ permissionMode, theme, onChange }: { permissionMode: AgentPermissionMode; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onChange: (permissionMode: AgentPermissionMode) => void }) {
+    const current = permissionOptions.find((item) => item.key === permissionMode) || permissionOptions[0];
+    return (
+        <Dropdown
+            trigger={["click"]}
+            placement="topLeft"
+            menu={{
+                items: permissionOptions.map((item) => ({
+                    key: item.key,
+                    label: <ConfirmationOption icon={item.icon} title={item.title} description={item.description} selected={permissionMode === item.key} />,
+                    onClick: () => onChange(item.key),
+                })),
+            }}
+        >
+            <button type="button" className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: permissionMode === "full" ? "#ea580c" : theme.node.text }} aria-label="选择 Codex 权限模式">
+                {current.icon}
+                <span>{current.shortTitle}</span>
+                <ChevronUp className="size-3 opacity-50" />
+            </button>
+        </Dropdown>
+    );
+}
+
+const permissionOptions: Array<{ key: AgentPermissionMode; title: string; shortTitle: string; description: string; icon: ReactNode }> = [
+    { key: "request", title: "请求批准", shortTitle: "请求批准", description: "编辑工作区外文件或联网时始终询问", icon: <ShieldAlert className="size-3.5" /> },
+    { key: "automatic", title: "自动审查", shortTitle: "自动审查", description: "由 Codex 审查风险操作，必要时再询问", icon: <ShieldCheck className="size-3.5" /> },
+    { key: "full", title: "完全访问权限", shortTitle: "完全访问", description: "不受限制地访问网络和本机文件", icon: <ShieldOff className="size-3.5" /> },
+];
 
 function ToolConfirmationMenu({ confirmTools, theme, onChange }: { confirmTools: boolean; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onChange: (confirmTools: boolean) => void }) {
     return (
