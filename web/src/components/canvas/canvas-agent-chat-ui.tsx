@@ -49,16 +49,8 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
         <div className={`flex items-start gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
             {!isUser ? <AgentAvatar theme={theme} /> : null}
             <div
-                className={isUser ? "min-w-0 max-w-[82%] rounded-xl rounded-br-sm border px-3.5 py-2.5 text-left text-sm leading-6" : "min-w-0 flex-1 text-left text-sm leading-6"}
-                style={
-                    isUser
-                        ? {
-                              color,
-                              background: `color-mix(in srgb, ${theme.node.text} 7%, ${theme.toolbar.panel})`,
-                              borderColor: `color-mix(in srgb, ${theme.node.text} 14%, transparent)`,
-                          }
-                        : { color }
-                }
+                className={isUser ? "min-w-0 max-w-[82%] py-1 text-right text-sm leading-6" : "min-w-0 flex-1 text-left text-sm leading-6"}
+                style={{ color }}
             >
                 {isUser ? (
                     <div className="whitespace-pre-wrap break-words">{item.text}</div>
@@ -66,7 +58,7 @@ export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveToo
                     <Streamdown animated isAnimating={!!item.streamId}>{item.text}</Streamdown>
                 )}
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} /> : null}
-                {item.meta ? <div className={`mt-1 text-[11px] opacity-45 ${isUser ? "text-right" : ""}`}>{item.meta}</div> : null}
+                {item.meta ? <div className={`mt-1 text-[11px] tabular-nums opacity-55 ${isUser ? "text-right" : ""}`}>{item.meta}</div> : null}
             </div>
             {isUser ? <AgentUserAvatar user={user} theme={theme} /> : null}
         </div>

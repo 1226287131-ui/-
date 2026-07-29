@@ -20,11 +20,11 @@ export class Logger {
             return;
         }
         fs.mkdirSync(path.dirname(this.filePath), {recursive: true});
-        const line = format.printf(({level, message, timestamp, details}) => `[${level.toUpperCase()}][${timestamp}] ${message}${formatDetails(details)}`);
+        const line = format.printf(({level, message, timestamp, details}) => `${timestamp} ${level.toUpperCase()} ${message}${formatDetails(details)}`);
         this.logger = winston.createLogger({
             level: "debug",
             transports: [
-                new transports.Console({format: format.combine(format.colorize(), format.timestamp({format: "HH:mm:ss"}), line)}),
+                new transports.Console({format: format.combine(format.timestamp({format: "HH:mm:ss"}), line)}),
                 new transports.File({filename: this.filePath, format: format.combine(format.timestamp({format: "HH:mm:ss"}), line)}),
             ],
         });
@@ -59,7 +59,8 @@ export class Logger {
 function formatDetails(details: unknown) {
     if (details === undefined) return "";
     if (!details || typeof details !== "object" || Array.isArray(details)) return ` ${inspect(details, {depth: null, breakLength: Infinity})}`;
-    return ` ${Object.entries(details).map(([key, value]) => `${key}=${inspect(value, {depth: null, breakLength: Infinity})}`).join(" ")}`;
+    const text = Object.entries(details).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}=${inspect(value, {depth: null, breakLength: Infinity})}`).join(" ");
+    return text ? ` ${text}` : "";
 }
 
 /** 清理日志内容中的敏感数据和不可序列化引用。 */

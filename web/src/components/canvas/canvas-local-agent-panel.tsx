@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Checkbox, Input, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { ChevronDown, Copy, FolderOpen, History, KeyRound, Link2, LoaderCircle, MessageSquare, PlugZap, Plus, RefreshCw, Square, Terminal, Trash2 } from "lucide-react";
+import { motion, useSpring, useTransform } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageMetadata } from "@/lib/canvas/canvas-node-factory";
@@ -13,7 +14,7 @@ import { uploadImage } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useShallow } from "zustand/react/shallow";
-import { useAgentStore, type AgentAttachment, type AgentCanvasContext, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary } from "@/stores/use-agent-store";
+import { useAgentStore, type AgentAttachment, type AgentCanvasContext, type AgentChatItem, type AgentEventLog, type AgentPanelTab, type AgentPendingToolCall, type AgentThreadSummary, type AgentTokenUsage } from "@/stores/use-agent-store";
 import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool, SITE_TOOL_LABELS } from "@/lib/agent/agent-site-tools";
 import { AgentChatComposer, AgentChatMessage, AgentPanelTabs, AgentPendingToolCard, AgentWorkingMessage, type CanvasAgentChatAttachment } from "./canvas-agent-chat-ui";
@@ -39,6 +40,7 @@ type AgentEventPayload = {
     error?: { message?: string };
     message?: string;
     usage?: Record<string, unknown>;
+    duration_ms?: number;
 };
 type AgentEventItem = { id?: string; type?: string; text?: unknown; message?: unknown; server?: string; tool?: string; status?: string; arguments?: unknown; result?: unknown; error?: { message?: string } };
 
@@ -63,7 +65,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     // 注意：canvasContext 不在此订阅内 —— 它在拖拽/resize 时会被 project 每帧写入，
     // 但面板只在 ref 同步与防抖 postState 中用到它、渲染层从不读它。若把它放进订阅，
     // 面板会随画布每帧重渲染（性能问题，也是 #185 崩溃的放大器）。改为下方 subscribe 命令式监听。
-    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, messages, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool } = useAgentStore(
+    const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, messages, tokenUsage, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, activity, connectError, pendingTool } = useAgentStore(
         useShallow((state) => ({
             width: state.width,
             url: state.url,
@@ -75,6 +77,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             sending: state.sending,
             waiting: state.waiting,
             messages: state.messages,
+            tokenUsage: state.tokenUsage,
             eventLogs: state.eventLogs,
             threads: state.threads,
             activeThreadId: state.activeThreadId,
@@ -233,7 +236,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             enqueueEvent(async () => {
                 const nextThreadId = data.activeThreadId ?? data.threadId ?? "";
                 pendingToolRef.current = null;
-                setAgentState({ activeThreadId: nextThreadId, messages: [], pendingTool: null });
+                setAgentState({ activeThreadId: nextThreadId, messages: [], tokenUsage: null, pendingTool: null });
                 await loadThreads(data.emptyThread);
             });
         });
@@ -263,7 +266,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             const silent = useAgentStore.getState().silentConnect && !wasConnected;
             const text = wasConnected ? "本地 Agent 连接失败或已断开" : "连接失败，请检查地址和 token";
             if (!errorLoggedRef.current || wasConnected) {
-                addEventLog(wasConnected ? "连接断开" : "连接失败", { endpoint, error: text });
+                addEventLog(wasConnected ? "连接断开" : "连接失败", text);
                 if (!headless && !silent) message.error(text);
             }
             errorLoggedRef.current = true;
@@ -310,7 +313,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         setAgentState({ activity: "发送中", sending: true });
         const messageId = createId();
         addMessage({ id: messageId, role: "user", text: text || "发送了图片", attachments: files });
-        addEventLog("用户发送", { text, attachments: files.map(({ name, type, size }) => ({ name, type, size })) });
+        addEventLog("发送任务", `${compactText(text) || "仅附件"}${files.length ? ` · 附件 ${files.length}` : ""}`);
         try {
             const data = await fetchAgentJson<{ threadId?: string }>(endpoint, token, "/agent/codex/turn", {
                 method: "POST",
@@ -325,7 +328,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 }),
             });
             if (data.threadId) setAgentState({ activeThreadId: data.threadId });
-            addEventLog("本地 Agent 已接收", { threadId: data.threadId });
             files.forEach((item) => {
                 URL.revokeObjectURL(item.url);
                 attachmentUrlsRef.current.delete(item.url);
@@ -349,7 +351,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         setAgentState({ activity: "停止中" });
         try {
             await fetch(`${endpoint}/agent/codex/interrupt?token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: useAgentStore.getState().activeThreadId || undefined }) });
-            addEventLog("用户停止", {});
+            addEventLog("停止任务", "已发送停止请求");
         } catch {
             setAgentState({ activity: "停止失败" });
         }
@@ -534,6 +536,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         turnSyncSequenceRef.current += 1;
         setAgentState({
             messages: [],
+            tokenUsage: null,
             threads: [],
             activeThreadId: "",
             workspacePath: "",
@@ -551,7 +554,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         setAgentState({ loadingThreads: true });
         try {
             const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
-            setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], activeTab: "chat", activity: "新对话" });
+            setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], tokenUsage: null, activeTab: "chat", activity: "新对话" });
         } catch (error) {
             addEventLog("新建对话失败", error);
             message.error(error instanceof Error ? error.message : "新建对话失败");
@@ -565,7 +568,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         setAgentState({ loadingThreads: true });
         try {
             const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, `/agent/codex/threads/${encodeURIComponent(threadId)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
-            setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), activeTab: "chat", activity: "已恢复会话" });
+            setAgentState({ activeThreadId: data.thread?.id || threadId, messages: normalizeHistoryMessages(data.messages || []), tokenUsage: null, activeTab: "chat", activity: "已恢复会话" });
         } catch (error) {
             addEventLog("恢复对话失败", error);
             message.error(error instanceof Error ? error.message : "恢复对话失败");
@@ -585,6 +588,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                 threads: current.threads.filter((thread) => !deleted.has(thread.id)),
                 activeThreadId: deleted.has(current.activeThreadId) ? "" : current.activeThreadId,
                 messages: deleted.has(current.activeThreadId) ? [] : current.messages,
+                tokenUsage: deleted.has(current.activeThreadId) ? null : current.tokenUsage,
             });
             message.success(`已删除 ${threadIds.length} 条记录`);
         } catch (error) {
@@ -630,18 +634,23 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
     };
 
     const addEventLog = (title: string, text: unknown, raw?: unknown) => {
-        pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: normalizeText(text) || title, raw });
+        const value = normalizeText(text) || title;
+        const last = useAgentStore.getState().eventLogs.at(-1);
+        if (last?.title === title && last.text === value) return;
+        pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: value, raw });
     };
 
     const handleAgentEvent = (event: AgentEventPayload) => {
-        if (shouldLogAgentEvent(event)) addEventLog(eventTitle(event), event, event);
+        if (event.type === "usage.updated") setAgentState({ tokenUsage: eventUsage(event) });
+        const log = formatAgentEventLog(event);
+        if (log) addEventLog(log.title, log.text);
         if (event.type === "thread.started" && event.thread_id) setAgentState({ activeThreadId: event.thread_id });
         if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.id) {
             const currentMessages = useAgentStore.getState().messages;
             const index = currentMessages.findIndex((message) => message.streamId === event.item?.id);
             if (index >= 0) {
                 const text = stringText(event.item.text);
-                setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text: text || message.text, meta: usageText(event) || message.meta, streamId: undefined } : message)) });
+                setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text: text || message.text, streamId: undefined } : message)) });
                 return;
             }
         }
@@ -743,6 +752,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
                             </Tooltip>
                         ) : null}
                     </div>
+                    {tokenUsage ? <AgentUsageBar usage={tokenUsage} theme={theme} /> : null}
                     <AgentChatComposer
                         prompt={prompt}
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
@@ -770,6 +780,31 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
 
     if (headless) return null;
     return embedded ? content : null;
+}
+
+function AgentUsageBar({ usage, theme }: { usage: AgentTokenUsage; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    return (
+        <div className="flex items-center justify-center gap-4 px-4 pt-1 text-[11px] tabular-nums" style={{ color: theme.node.muted }}>
+            <span className="opacity-70">最新调用</span>
+            <UsageNumber label="输入" value={usage.input} color={theme.node.text} />
+            <UsageNumber label="缓存" value={usage.cached} color={theme.node.text} />
+            <UsageNumber label="输出" value={usage.output} color={theme.node.text} />
+        </div>
+    );
+}
+
+function UsageNumber({ label, value, color }: { label: string; value: number; color: string }) {
+    const spring = useSpring(value, { stiffness: 110, damping: 24, mass: 0.7 });
+    const text = useTransform(spring, (current) => Math.round(current).toLocaleString());
+    useEffect(() => spring.set(value), [spring, value]);
+    return (
+        <span className="inline-flex items-baseline gap-1" aria-label={`${label} ${value.toLocaleString()}`}>
+            <span>{label}</span>
+            <motion.span aria-hidden className="font-medium" style={{ color }}>
+                {text}
+            </motion.span>
+        </span>
+    );
 }
 
 function AgentLogView({
@@ -1125,7 +1160,7 @@ async function postToolResult(endpoint: string, token: string, clientId: string,
 }
 
 function agentMessageToChatMessage(item: AgentChatItem) {
-    return { ...item, attachments: item.attachments?.map(agentAttachmentToChatAttachment) };
+    return { ...item, meta: item.role === "user" || item.role === "assistant" ? undefined : item.meta, attachments: item.attachments?.map(agentAttachmentToChatAttachment) };
 }
 
 function agentAttachmentToChatAttachment(item: AgentAttachment): CanvasAgentChatAttachment {
@@ -1135,10 +1170,8 @@ function agentAttachmentToChatAttachment(item: AgentAttachment): CanvasAgentChat
 function formatAgentEvent(event: AgentEventPayload): Omit<AgentChatItem, "id"> | null {
     const item = event.item;
     if (event.type === "item.completed" && item?.type === "error") return { role: "error", title: "错误", text: normalizeText(item.message), detail: item };
-    if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), meta: usageText(event), streamId: event.type === "item.updated" ? item.id : undefined };
+    if ((event.type === "item.updated" || event.type === "item.completed") && item?.type === "agent_message") return { role: "assistant", title: "Codex", text: stringText(item.text), streamId: event.type === "item.updated" ? item.id : undefined };
     if (event.type === "item.completed" && isMcpToolItem(item) && isReadTool(String(item?.tool || ""))) return { role: "tool", title: `${toolName(String(item?.tool || ""))}完成`, text: item?.error?.message || toolSummary(item), detail: toolDetail(item) };
-    const text = eventText(event);
-    if (text) return { role: "assistant", title: "Codex", text, meta: usageText(event) };
     return null;
 }
 
@@ -1157,22 +1190,12 @@ function isCurrentThreadEvent(event: { threadId?: string; thread_id?: string }) 
 
 function formatLogText(logs: AgentEventLog[], context: AgentLogContext) {
     const head = [
-        "Infinite Canvas Agent 诊断日志",
-        `Canvas Agent: ${context.endpoint}`,
-        `连接: ${context.connected ? "在线" : context.enabled ? "连接中" : "未启用"}`,
-        `状态: ${context.activity}`,
-        `waiting: ${context.waiting}`,
-        `sending: ${context.sending}`,
-        `messages: ${context.messages}`,
-        `pendingTool: ${context.pendingTool ? toolName(context.pendingTool) : "none"}`,
-        `logs: ${logs.length}`,
+        "Infinite Canvas Agent 诊断",
+        `地址：${context.endpoint}`,
+        `连接：${context.connected ? "在线" : context.enabled ? "连接中" : "未启用"} · 状态：${context.activity}`,
+        `消息：${context.messages} · 工具：${context.pendingTool ? toolName(context.pendingTool) : "无"}`,
     ].join("\n");
-    const body = logs
-        .map((item, index) => {
-            const detail = item.raw == null ? item.text : JSON.stringify(item.raw, null, 2);
-            return [`#${index + 1} ${item.time} ${item.title}`, detail].filter(Boolean).join("\n");
-        })
-        .join("\n\n---\n\n");
+    const body = logs.map((item) => `${item.time} ${item.title}${item.text && item.text !== item.title ? ` · ${item.text}` : ""}`).join("\n");
     return [head, body || "暂无事件日志"].join("\n\n");
 }
 
@@ -1180,37 +1203,37 @@ function formatLogJson(logs: AgentEventLog[], context: AgentLogContext) {
     return JSON.stringify({ context, logs: logs.map(({ time, title, text, raw }) => ({ time, title, text, raw })) }, null, 2);
 }
 
-function eventText(event: AgentEventPayload) {
-    return event.type === "item.completed" && event.item?.type === "agent_message" ? stringText(event.item.text) : "";
-}
-
-function usageText(event: AgentEventPayload) {
-    const usage = event.usage;
-    if (!usage || typeof usage !== "object") return undefined;
-    const total = numberField(usage, "total_tokens");
-    const input = numberField(usage, "input_tokens");
-    const output = numberField(usage, "output_tokens");
-    if (total) return `${total} tok`;
-    if (input || output) return `${input || 0}/${output || 0} tok`;
-    return undefined;
-}
-
-function eventTitle(event: AgentEventPayload) {
+function formatAgentEventLog(event: AgentEventPayload) {
     const item = event.item;
-    if (event.type === "thread.started") return "已创建 Codex 会话";
-    if (event.type === "turn.started") return "开始处理";
-    if (event.type === "turn.completed") return "本轮完成";
-    if (event.type === "stream.summary") return "流式摘要";
-    if (event.type === "turn.failed" || event.type === "error") return "本轮失败";
-    if (event.type === "item.started" && isMcpToolItem(item)) return `调用工具：${toolName(String(item?.tool || ""))}`;
-    if (event.type === "item.completed" && isMcpToolItem(item)) return `工具完成：${toolName(String(item?.tool || ""))}`;
-    if (event.type === "item.completed" && item?.type === "agent_message") return "Codex 回复";
-    return event.type || "Codex 事件";
+    if (event.type === "thread.started") return { title: "创建会话", text: shortId(event.thread_id) };
+    if (event.type === "turn.started") return { title: "开始处理", text: shortId(event.turn_id) };
+    if (event.type === "turn.completed") return { title: "处理完成", text: turnSummary(event) };
+    if (event.type === "turn.failed" || event.type === "error") return { title: "处理失败", text: event.message || event.error?.message || "未知错误" };
+    if (event.type === "item.started" && isMcpToolItem(item)) return { title: "调用工具", text: toolName(String(item?.tool || "")) };
+    if (event.type === "item.completed" && isMcpToolItem(item)) return { title: item.error ? "工具失败" : "工具完成", text: `${toolName(String(item?.tool || ""))}${item.error?.message ? ` · ${item.error.message}` : ""}` };
+    if (event.type === "item.completed" && item?.type === "agent_message") return { title: "收到回复", text: compactText(stringText(item.text)) };
+    return null;
 }
 
-function shouldLogAgentEvent(event: AgentEventPayload) {
-    const itemType = event.item?.type || "";
-    return !["item.updated"].includes(event.type || "") && !["reasoning"].includes(itemType) && !(event.type === "item.started" && itemType === "agent_message");
+function turnSummary(event: AgentEventPayload) {
+    return event.duration_ms ? `${(event.duration_ms / 1000).toFixed(1)} 秒` : "完成";
+}
+
+function eventUsage(event: AgentEventPayload): AgentTokenUsage {
+    return {
+        input: numberField(event.usage, "input_tokens"),
+        cached: numberField(event.usage, "cached_input_tokens"),
+        output: numberField(event.usage, "output_tokens"),
+    };
+}
+
+function shortId(value?: string) {
+    return value ? value.slice(0, 8) : "";
+}
+
+function compactText(value: string, maxLength = 120) {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
 function isConnectionErrorMessage(item: AgentChatItem) {

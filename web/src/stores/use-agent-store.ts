@@ -9,6 +9,7 @@ export type AgentEventLog = { id: string; time: string; title: string; text: str
 export type AgentPendingToolCall = { requestId: string; name: string; input?: { ops?: CanvasAgentOp[]; path?: string } & Record<string, unknown> };
 export type AgentCanvasContext = { snapshot: CanvasAgentSnapshot; applyOps: (ops?: CanvasAgentOp[]) => CanvasAgentSnapshot; undoOps: () => CanvasAgentSnapshot | null; canUndo: boolean };
 export type AgentThreadSummary = { id: string; preview: string; name?: string | null; cwd?: string; status?: string; source?: unknown; createdAt?: number; updatedAt?: number };
+export type AgentTokenUsage = { input: number; cached: number; output: number };
 export type AgentPanelTab = "chat" | "setup" | "history" | "log";
 
 const CONNECT_TIMEOUT_MS = 6000;
@@ -31,6 +32,7 @@ type AgentStore = {
     sending: boolean;
     waiting: boolean;
     messages: AgentChatItem[];
+    tokenUsage: AgentTokenUsage | null;
     eventLogs: AgentEventLog[];
     threads: AgentThreadSummary[];
     activeThreadId: string;
@@ -71,6 +73,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     sending: false,
     waiting: false,
     messages: [],
+    tokenUsage: null,
     eventLogs: [],
     threads: [],
     activeThreadId: "",

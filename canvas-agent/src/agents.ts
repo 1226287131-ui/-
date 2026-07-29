@@ -40,7 +40,6 @@ export function interruptCodexTurn(threadId?: string) {
 async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: AgentAttachment[], options: CodexRunOptions) {
     let files: string[] = [];
     try {
-        logger.info("Preparing Codex turn", { threadId: options.threadId, cwd: options.cwd, prompt, attachmentCount: attachments.length });
         options.onStart?.();
         files = await writeAttachmentFiles(attachments);
         const app = await getCodexApp(options.appEmit || emit);
@@ -147,7 +146,6 @@ class CodexAppClient {
     private nextId = 1;
     private buffer = "";
     private textByItem = new Map<string, string>();
-    private deltaCount = 0;
     private lastUsage: unknown = null;
     private pending = new Map<number, PendingRequest>();
     private activeTurns = new Map<string, PendingRequest>();
@@ -245,7 +243,9 @@ class CodexAppClient {
     }
 
     private write(value: unknown) {
-        logger.debug("Codex app-server request", value);
+        const method = String(field(value, "method") || "");
+        const params = field(value, "params");
+        if (method) logger.debug(`Codex ${method}`, { id: field(value, "id"), threadId: field(params, "threadId") });
         this.child.stdin?.write(`${JSON.stringify(value)}\n`);
     }
 
@@ -264,9 +264,12 @@ class CodexAppClient {
     }
 
     private handle(message: Json) {
-        logger.debug("Codex app-server response", message);
         const id = Number(message.id);
-        if (message.error && this.pending.has(id)) return this.reject(id, String(field(message.error, "message") || "Codex request failed"));
+        if (message.error && this.pending.has(id)) {
+            const error = String(field(message.error, "message") || "Codex request failed");
+            logger.warn("Codex request failed", { id, error });
+            return this.reject(id, error);
+        }
         if (this.pending.has(id)) return this.resolve(id, message.result);
         if (typeof message.method === "string" && "id" in message) return this.answerServerRequest(message);
         if (typeof message.method === "string") this.handleNotification(message.method, (message.params || {}) as Json);
@@ -274,7 +277,11 @@ class CodexAppClient {
 
     private handleNotification(method: string, params: Json) {
         if (method === "item/agentMessage/delta") return this.emitDelta(params);
-        if (method === "thread/tokenUsage/updated") this.lastUsage = normalizeUsage(params);
+        if (method === "thread/tokenUsage/updated") {
+            this.lastUsage = normalizeUsage(params);
+            this.emit("agent_event", { agent: "codex", type: "usage.updated", usage: this.lastUsage, ...codexEventScope(params) });
+            return;
+        }
         const event = normalizeCodexNotification(method, params);
         if (!event) return;
         if (event.type === "item.completed") {
@@ -296,8 +303,6 @@ class CodexAppClient {
             } else if (turnId) {
                 this.completedTurns.set(turnId, error ? new Error(String(field(error, "message") || "Codex turn failed")) : null);
             }
-            this.emit("agent_event", { agent: "codex", type: "stream.summary", delta_count: this.deltaCount, ...codexEventScope(params) });
-            this.deltaCount = 0;
             this.emit("agent_done", { agent: "codex", usage: event.usage, ...codexEventScope(params) });
         }
     }
@@ -305,7 +310,6 @@ class CodexAppClient {
     private emitDelta(params: Json) {
         const id = String(field(params, "itemId") || "");
         const text = `${this.textByItem.get(id) || ""}${String(field(params, "delta") || "")}`;
-        this.deltaCount += 1;
         this.textByItem.set(id, text);
         this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", text }, ...codexEventScope(params) });
     }
@@ -353,7 +357,7 @@ function normalizeCodexNotification(method: string, params: Json): AgentEvent | 
     const scope = codexEventScope(params);
     if (method === "thread/started") return { type: "thread.started", ...scope };
     if (method === "turn/started") return { type: "turn.started", ...scope };
-    if (method === "turn/completed") return { type: "turn.completed", usage: null, ...scope };
+    if (method === "turn/completed") return { type: "turn.completed", usage: null, duration_ms: field(field(params, "turn"), "durationMs"), ...scope };
     if (method === "item/started") return { type: "item.started", item: normalizeItem(field(params, "item")), ...scope };
     if (method === "item/completed") return { type: "item.completed", item: normalizeItem(field(params, "item")), ...scope };
     if (method === "error") return { type: "error", message: field(params, "message"), ...scope };
@@ -405,12 +409,12 @@ function normalizeItem(item: unknown) {
 }
 
 function normalizeUsage(params: Json) {
-    const total = field(field(params, "tokenUsage"), "total") as Json | undefined;
+    const last = field(field(params, "tokenUsage"), "last") as Json | undefined;
     return {
-        input_tokens: field(total, "inputTokens"),
-        cached_input_tokens: field(total, "cachedInputTokens"),
-        output_tokens: field(total, "outputTokens"),
-        reasoning_output_tokens: field(total, "reasoningOutputTokens"),
+        input_tokens: field(last, "inputTokens"),
+        cached_input_tokens: field(last, "cachedInputTokens"),
+        output_tokens: field(last, "outputTokens"),
+        reasoning_output_tokens: field(last, "reasoningOutputTokens"),
     };
 }
 

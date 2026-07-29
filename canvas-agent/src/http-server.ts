@@ -16,7 +16,6 @@ export function startHttpServer() {
     const emit = (type: string, payload: unknown) => {
         const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
         const threadId = String(data.threadId || data.thread_id || ensureSiteWorkspace(config).activeThreadId || "");
-        logger.debug("Agent event", { type, threadId, payload: data });
         threadId ? session.emitThread(type, threadId, data) : session.emitAll(type, data);
     };
     const setActiveThread = (activeThreadId: string, payload: Record<string, unknown> = {}) => {
@@ -31,7 +30,10 @@ export function startHttpServer() {
         if (!logger.enabled) return next();
         const startedAt = Date.now();
         const url = requestUrl(req, config);
-        res.on("finish", () => logger.debug("HTTP request", { method: req.method, path: url.pathname, status: res.statusCode, durationMs: Date.now() - startedAt, origin: req.headers.origin, clientId: url.searchParams.get("clientId") }));
+        res.on("finish", () => {
+            if (req.method === "OPTIONS" || (res.statusCode < 400 && ["/health", "/canvas/state", "/canvas/activate"].includes(url.pathname))) return;
+            logger.debug(`HTTP ${req.method} ${url.pathname}`, { status: res.statusCode, durationMs: Date.now() - startedAt });
+        });
         next();
     });
     app.use((req, res, next) => {
@@ -117,7 +119,7 @@ export function startHttpServer() {
         const prompt = String(req.body?.prompt || "");
         if (!prompt.trim()) return res.status(400).json({ ok: false, error: "请输入任务内容" });
         const clientId = String(req.body?.clientId || "");
-        logger.info("Codex turn accepted", { clientId, threadId: req.body?.threadId, prompt, attachments: attachments.map(({ id, name, type, size, width, height }) => ({ id, name, type, size, width, height })) });
+        logger.info("Codex turn accepted", { threadId: req.body?.threadId, promptLength: prompt.length, attachmentCount: attachments.length });
         session.setCodexState({ busy: true, threadId: String(req.body?.threadId || workspace.activeThreadId || ""), turnId: "" });
         try {
             let threadId = String(req.body?.threadId || workspace.activeThreadId || "");
