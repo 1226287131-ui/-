@@ -240,8 +240,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
             if (!data) return;
             enqueueEvent(() => {
                 if (!isCurrentThreadEvent(data)) return;
-                addMessage({ role: "error", title: "错误", text: normalizeText(data.message) });
-                addEventLog("错误", data.message, data.message);
+                showAgentError(data.message, data.turn_id);
             });
         });
         source.onerror = () => {
@@ -664,6 +663,14 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, detail } : message)) });
     };
 
+    const showAgentError = (value: unknown, turnId?: string) => {
+        const error = agentErrorView(value);
+        const item = { id: turnId ? `error-${turnId}` : createId(), role: "error" as const, title: error.title, text: error.text };
+        upsertActivityMessage(item);
+        setAgentState({ activity: "处理失败", waiting: false, sending: false });
+        addEventLog("处理失败", error.text, value);
+    };
+
     const handleAgentEvent = (event: AgentEventPayload) => {
         if (event.type === "usage.updated") setAgentState({ tokenUsage: eventUsage(event) });
         const log = formatAgentEventLog(event);
@@ -699,6 +706,7 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
         if (event.type === "turn.completed") {
             if (event.turn_id) finishPlanActivity(event.turn_id, event.status);
             setAgentState({ messages: useAgentStore.getState().messages.map((message) => (message.streamId ? { ...message, streamId: undefined } : message)) });
+            if (event.status === "failed") showAgentError(event.error?.message, event.turn_id);
         }
         const item = formatAgentEvent(event);
         if (item) addMessage(item);
@@ -1461,8 +1469,9 @@ function formatAgentEventLog(event: AgentEventPayload) {
         const tasks = planTasks(event.plan);
         return { title: "更新任务进度", text: `已完成 ${tasks.filter((item) => item.status === "completed").length}/${tasks.length} 项` };
     }
-    if (event.type === "turn.completed") return { title: "处理完成", text: turnSummary(event) };
-    if (event.type === "turn.failed" || event.type === "error") return { title: "处理失败", text: event.message || event.error?.message || "未知错误" };
+    if (event.type === "turn.completed" && event.status === "failed") return { title: "处理失败", text: agentErrorView(event.error?.message).text };
+    if (event.type === "turn.completed") return { title: event.status === "interrupted" ? "处理已停止" : "处理完成", text: turnSummary(event) };
+    if (event.type === "turn.failed" || event.type === "error") return { title: "处理失败", text: agentErrorView(event.message || event.error?.message).text };
     if (event.type === "item.started" && isMcpToolItem(item)) return { title: "调用工具", text: toolName(String(item?.tool || "")) };
     if (event.type === "item.completed" && isMcpToolItem(item)) return { title: item.error ? "工具失败" : "工具完成", text: `${toolName(String(item?.tool || ""))}${item.error?.message ? ` · ${item.error.message}` : ""}` };
     if (event.type === "item.completed" && item?.type === "agent_message") return { title: "收到回复", text: compactText(stringText(item.text)) };
@@ -1471,6 +1480,12 @@ function formatAgentEventLog(event: AgentEventPayload) {
 
 function turnSummary(event: AgentEventPayload) {
     return event.duration_ms ? `${(event.duration_ms / 1000).toFixed(1)} 秒` : "完成";
+}
+
+function agentErrorView(value: unknown) {
+    const text = normalizeText(value);
+    if (/selected model is at capacity/i.test(text)) return { title: "模型暂时繁忙", text: "当前选择的模型请求量过大，暂时无法处理。请稍后重试，或切换其他模型后再试。" };
+    return { title: "任务失败", text: text || "Codex 未能完成本次任务，请稍后重试。" };
 }
 
 function eventUsage(event: AgentEventPayload): AgentTokenUsage {

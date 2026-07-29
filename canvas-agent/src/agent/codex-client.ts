@@ -327,7 +327,7 @@ function normalizeCodexNotification(method: string, params: JsonRecord): AgentEv
     const scope = codexEventScope(params);
     if (method === "thread/started") return { type: "thread.started", ...scope };
     if (method === "turn/started") return { type: "turn.started", ...scope };
-    if (method === "turn/completed") return { type: "turn.completed", status: field(field(params, "turn"), "status"), usage: null, duration_ms: field(field(params, "turn"), "durationMs"), ...scope };
+    if (method === "turn/completed") return { type: "turn.completed", status: field(field(params, "turn"), "status"), error: field(field(params, "turn"), "error"), usage: null, duration_ms: field(field(params, "turn"), "durationMs"), ...scope };
     if (method === "turn/plan/updated") return { type: "plan.updated", explanation: field(params, "explanation"), plan: field(params, "plan"), ...scope };
     if (method === "item/started") return { type: "item.started", item: normalizeItem(field(params, "item")), ...scope };
     if (method === "item/completed") return { type: "item.completed", item: normalizeItem(field(params, "item")), ...scope };

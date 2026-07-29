@@ -26,6 +26,7 @@ export function threadMessages(thread: unknown, planUpdates: CodexPlanUpdate[] =
     const messages: AgentHistoryMessage[] = [];
     turns.forEach((turn, turnIndex) => {
         const turnId = String(field(turn, "id") || turnIndex);
+        const turnError = String(field(field(turn, "error"), "message") || "").trim();
         const planMessage = structuredPlanMessage(plansByTurn.get(turnId) || { threadId: "", turnId, explanation: stringOrNull(field(turn, "explanation")), plan: arrayValue(field(turn, "plan")) as CodexPlanUpdate["plan"], turnStatus: String(field(turn, "status") || "") });
         let planAdded = false;
         arrayValue(field(turn, "items")).forEach((item, itemIndex) => {
@@ -72,6 +73,10 @@ export function threadMessages(thread: unknown, planUpdates: CodexPlanUpdate[] =
             if (type === "collabToolCall") messages.push({ id, role: "tool", title: "协作处理", text: "已完成协作任务", detail: { kind: "tool", status: field(item, "status") } });
         });
         if (planMessage && !planAdded) messages.push(planMessage);
+        if (turnError) {
+            const error = userFacingCodexError(turnError);
+            messages.push({ id: `error-${turnId}`, role: "error", title: error.title, text: error.text });
+        }
     });
     return messages.filter((item) => item.text).slice(-120);
 }
@@ -99,6 +104,12 @@ function planStatus(tasks: Array<{ status: string }>, turnStatus?: string) {
     if (turnStatus === "interrupted") return "interrupted";
     if (tasks.every((item) => item.status === "completed")) return "completed";
     return turnStatus === "completed" ? "finished" : "inProgress";
+}
+
+/** 将常见 Codex 错误转换为普通用户可理解的提示。 */
+function userFacingCodexError(message: string) {
+    if (/selected model is at capacity/i.test(message)) return { title: "模型暂时繁忙", text: "当前选择的模型请求量过大，暂时无法处理。请稍后重试，或切换其他模型后再试。" };
+    return { title: "任务失败", text: message || "Codex 未能完成本次任务，请稍后重试。" };
 }
 
 /** 提取用户输入条目中的文本与附件占位信息。 */

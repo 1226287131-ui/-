@@ -145,7 +145,7 @@ export function startHttpServer() {
             /** 将当前 turn 事件固定广播到实际线程。 */
             const turnEmit = (type: string, payload: unknown) => {
                 const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
-                session.emitThread(type, threadId, data);
+                session.emitThread(type, threadId, { ...data, ...(turnId ? { turn_id: turnId } : {}) });
             };
             void runCodexTurn(withAttachmentContext(prompt, attachmentRefs), turnEmit, attachments, {
                 threadId,
