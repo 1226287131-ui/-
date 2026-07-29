@@ -13,7 +13,7 @@ import { deleteAgentThreadMessages, readAgentUserMessages, saveAgentUserMessage 
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentCanvasContext, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentPermissionMode, type AgentThreadSummary } from "@/stores/use-agent-store";
-import {summarizeCanvasAgentOps, type CanvasAgentOp, CanvasAgentSnapshot} from "@/lib/canvas/canvas-agent-ops";
+import { summarizeCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool } from "@/lib/agent/agent-site-tools";
 import { activateAgentClient, discoverAgentConfig, fetchAgentJson, postCodexApproval, postState, postToolResult } from "./agent-api";
 import { AgentChatTimeline, AgentTaskProgress, AgentUsageBar } from "./agent-chat";
@@ -727,7 +727,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         addEventLog("处理失败", error.text, value);
     };
 
-    const handleAgentEvent = (event: AgentEventPayload) => {
+    const handleAgentEvent = async (event: AgentEventPayload) => {
         if (event.type === "usage.updated") setAgentState({ tokenUsage: eventUsage(event) });
         const log = formatAgentEventLog(event);
         if (log) addEventLog(log.title, log.text);
@@ -751,6 +751,31 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             if (index >= 0) {
                 const text = stringText(event.item.text);
                 setAgentState({ messages: currentMessages.map((message, i) => (i === index ? { ...message, text: text || message.text, streamId: undefined } : message)) });
+                return;
+            }
+        }
+        if (event.type === "item.completed" && event.item?.type === "dynamic_tool_call" && event.item.id) {
+            const generated = await importGeneratedImages(endpoint, token, event.item);
+            if (generated.length) {
+                const context = canvasContextRef.current;
+                if (context) {
+                    const right = Math.max(0, ...context.snapshot.nodes.map((node) => node.position.x + node.width)) + 80;
+                    const ops = generated.map<CanvasAgentOp>((image, index) => {
+                        const size = fitNodeSize(image.upload.width, image.upload.height);
+                        return {
+                            type: "add_node",
+                            id: `image-${createId()}`,
+                            nodeType: "image",
+                            title: image.name,
+                            position: { x: right + index * 40, y: index * 40 },
+                            ...size,
+                            metadata: imageMetadata(image.upload),
+                        };
+                    });
+                    const result = context.applyOps(ops);
+                    void postState(endpoint, token, clientIdRef.current, result);
+                }
+                addMessage({ id: `generated-${event.item.id}`, role: "assistant", text: context ? "已将生成图片添加到当前画布。" : "图片已生成。", attachments: generated.map((image) => image.attachment) });
                 return;
             }
         }
@@ -927,7 +952,34 @@ function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
 }
 
-function readDataUrl(file: File) {
+async function importGeneratedImages(endpoint: string, token: string, item: AgentEventItem) {
+    const sources = Array.from(generatedImageSources(item));
+    return await Promise.all(
+        sources.map(async (source, index) => {
+            const response = source.startsWith("data:image/")
+                ? await fetch(source)
+                : await fetch(`${endpoint}/agent/local-image?token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: source }) });
+            if (!response.ok) throw new Error("读取 Codex 生成图片失败");
+            const blob = await response.blob();
+            const upload = await uploadImage(blob);
+            const dataUrl = await readDataUrl(blob);
+            const name = source.startsWith("/") ? source.split("/").at(-1) || `生成图片 ${index + 1}` : `生成图片 ${index + 1}`;
+            return { upload, name, attachment: { id: createId(), name, type: blob.type || upload.mimeType, size: blob.size, width: upload.width, height: upload.height, url: upload.url, dataUrl } };
+        }),
+    );
+}
+
+function generatedImageSources(value: unknown, result = new Set<string>()) {
+    if (typeof value === "string") {
+        if (value.startsWith("data:image/") || (/^\/.+\.(?:avif|gif|jpe?g|png|webp)$/i.test(value) && !value.includes("\n"))) result.add(value);
+        return result;
+    }
+    if (Array.isArray(value)) value.forEach((item) => generatedImageSources(item, result));
+    else if (value && typeof value === "object") Object.values(value).forEach((item) => generatedImageSources(item, result));
+    return result;
+}
+
+function readDataUrl(file: Blob) {
     return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));

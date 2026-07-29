@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
@@ -81,6 +81,14 @@ export function startHttpServer() {
         const file = await stat(filePath);
         await revealLocalFile(filePath, file.isDirectory());
         res.json({ ok: true });
+    }));
+    app.post("/agent/local-image", route(async (req, res) => {
+        const filePath = String(req.body?.path || "");
+        if (!path.isAbsolute(filePath) || !/\.(?:avif|gif|jpe?g|png|webp)$/i.test(filePath)) return res.status(400).json({ ok: false, error: "图片路径无效" });
+        const file = await stat(filePath);
+        if (!file.isFile()) return res.status(400).json({ ok: false, error: "图片文件无效" });
+        res.setHeader("Cache-Control", "no-store");
+        res.type(path.extname(filePath)).send(await readFile(filePath));
     }));
     app.post("/api/tools", route(async (req, res) => res.json({ ok: true, result: await session.callTool(req.body?.name, req.body?.input || {}) })));
     app.get("/agent/codex/workspace", (_req, res) => {

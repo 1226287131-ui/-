@@ -61,7 +61,8 @@ function initializeWorkspace(workspacePath: string) {
     if (initializedWorkspaces.has(workspacePath)) return;
     fs.mkdirSync(workspacePath, { recursive: true });
     const instructionsFile = path.join(workspacePath, "AGENTS.md");
-    if (!fs.existsSync(instructionsFile)) fs.writeFileSync(instructionsFile, AGENT_PROMPT);
+    const current = fs.existsSync(instructionsFile) ? fs.readFileSync(instructionsFile, "utf8") : "";
+    if (!current || current.startsWith("# Infinite Canvas Agent")) fs.writeFileSync(instructionsFile, AGENT_PROMPT);
     initializedWorkspaces.add(workspacePath);
 }
 
