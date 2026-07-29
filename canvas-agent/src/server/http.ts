@@ -181,10 +181,7 @@ export function startHttpServer() {
             throw error;
         }
     }));
-    app.post("/agent/codex/interrupt", (req, res) => {
-        const ok = interruptCodexTurn(String(req.body?.threadId || ""));
-        res.json({ ok });
-    });
+    app.post("/agent/codex/interrupt", route(async (req, res) => res.json({ ok: await interruptCodexTurn(String(req.body?.threadId || "")) })));
     app.post("/agent/claude/turn", (req, res) => {
         runClaudeTurn(String(req.body?.prompt || ""), emit);
         res.json({ ok: true });

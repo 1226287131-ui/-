@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
+import type { CodexNotificationParams, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
 import type { AgentEmit } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
@@ -19,6 +20,7 @@ export class CodexAppClient {
     private nextId = 1;
     private buffer = "";
     private currentThreadId = "";
+    private currentTurnId = "";
     private textByItem = new Map<string, string>();
     private lastUsage: unknown = null;
     private pending = new Map<number, PendingRequest>();
@@ -56,24 +58,20 @@ export class CodexAppClient {
 
     /** 创建新的 Codex 线程。 */
     async startThread(cwd?: string) {
-        const result = await this.request("thread/start", { approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}), threadSource: "user" });
-        const thread = field(result, "thread") as JsonRecord | undefined;
-        const id = String(field(thread, "id") || "");
-        if (!id) throw new Error("Codex app-server 没有返回 thread id");
-        return thread || {};
+        const { thread } = await this.request("thread/start", { approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}), threadSource: "user" });
+        if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
+        return thread;
     }
 
     /** 恢复已有 Codex 线程。 */
     async resumeThread(threadId: string, cwd?: string) {
-        const result = await this.request("thread/resume", { threadId, approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}) });
-        const thread = field(result, "thread") as JsonRecord | undefined;
-        const id = String(field(thread, "id") || "");
-        if (!id) throw new Error("Codex app-server 没有返回 thread id");
-        return thread || {};
+        const { thread } = await this.request("thread/resume", { threadId, approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}) });
+        if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
+        return thread;
     }
 
     /** 查询 Codex 线程列表。 */
-    listThreads(params: JsonRecord) {
+    listThreads(params: CodexRequestParams<"thread/list">) {
         return this.request("thread/list", params);
     }
 
@@ -89,14 +87,17 @@ export class CodexAppClient {
 
     /** 启动一个 Codex turn 并等待完成通知。 */
     async startTurn(threadId: string, prompt: string, images: string[], onTurn?: (turnId: string) => void) {
-        const result = await this.request("turn/start", { threadId, input: codexInput(prompt, images), approvalPolicy: "never" });
-        const turnId = String(field(field(result, "turn"), "id") || "");
+        const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), approvalPolicy: "never" });
+        const turnId = turn.id;
         if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
         this.currentThreadId = threadId;
+        this.currentTurnId = turnId;
         onTurn?.(turnId);
         const completed = this.completedTurns.get(turnId);
         if (this.completedTurns.has(turnId)) {
             this.completedTurns.delete(turnId);
+            this.currentThreadId = "";
+            this.currentTurnId = "";
             if (completed) throw completed;
             return;
         }
@@ -104,22 +105,25 @@ export class CodexAppClient {
     }
 
     /** 中断当前正在运行的 Codex turn。 */
-    interruptCurrentTurn() {
-        if (this.activeTurns.size === 0) return false;
+    async interruptCurrentTurn() {
+        const threadId = this.currentThreadId;
+        const turnId = this.currentTurnId;
+        if (!threadId || !turnId) return false;
         try {
-            logger.warn("Interrupting active Codex turn", { threadId: this.currentThreadId, activeTurns: this.activeTurns.size });
-            this.child.kill("SIGINT");
+            logger.warn("Interrupting active Codex turn", { threadId, turnId });
+            await this.request("turn/interrupt", { threadId, turnId });
             return true;
-        } catch {
+        } catch (error) {
+            logger.warn("Failed to interrupt Codex turn", { error, threadId, turnId });
             return false;
         }
     }
 
     /** 发送 JSON-RPC 请求并保存待处理 Promise。 */
-    private request(method: string, params: unknown) {
+    private request<Method extends CodexRequestMethod>(method: Method, params: CodexRequestParams<Method>) {
         const id = this.nextId++;
         this.write({ id, method, params });
-        return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+        return new Promise<CodexRequestResult<Method>>((resolve, reject) => this.pending.set(id, { resolve: (result) => resolve(result as CodexRequestResult<Method>), reject }));
     }
 
     /** 发送无需响应的 JSON-RPC 通知。 */
@@ -165,9 +169,9 @@ export class CodexAppClient {
 
     /** 转换并广播 app-server 通知。 */
     private handleNotification(method: string, params: JsonRecord) {
-        if (method === "item/agentMessage/delta") return this.emitDelta(params);
+        if (method === "item/agentMessage/delta") return this.emitDelta(params as unknown as CodexNotificationParams<"item/agentMessage/delta">);
         if (method === "thread/tokenUsage/updated") {
-            this.lastUsage = normalizeUsage(params);
+            this.lastUsage = normalizeUsage(params as unknown as CodexNotificationParams<"thread/tokenUsage/updated">);
             this.emit("agent_event", { agent: "codex", type: "usage.updated", usage: this.lastUsage, ...codexEventScope(params) });
             return;
         }
@@ -183,24 +187,28 @@ export class CodexAppClient {
         if (event.type === "turn.completed") event.usage = this.lastUsage;
         this.emit("agent_event", { agent: "codex", ...event });
         if (event.type === "turn.completed") {
-            const turnId = String(field(params, "turnId") || field(field(params, "turn"), "id") || "");
+            const turn = (params as unknown as CodexNotificationParams<"turn/completed">).turn;
+            const turnId = turn.id;
             const pending = this.activeTurns.get(turnId);
-            const error = field(field(params, "turn"), "error");
+            const error = turn.error;
             if (pending) {
                 this.activeTurns.delete(turnId);
-                error ? pending.reject(new Error(String(field(error, "message") || "Codex turn failed"))) : pending.resolve(event);
+                error ? pending.reject(new Error(error.message || "Codex turn failed")) : pending.resolve(event);
             } else if (turnId) {
-                this.completedTurns.set(turnId, error ? new Error(String(field(error, "message") || "Codex turn failed")) : null);
+                this.completedTurns.set(turnId, error ? new Error(error.message || "Codex turn failed") : null);
             }
-            if (this.activeTurns.size === 0) this.currentThreadId = "";
+            if (turnId === this.currentTurnId) {
+                this.currentThreadId = "";
+                this.currentTurnId = "";
+            }
             this.emit("agent_done", { agent: "codex", usage: event.usage, ...codexEventScope(params) });
         }
     }
 
     /** 合并并广播 Agent 文本增量。 */
-    private emitDelta(params: JsonRecord) {
-        const id = String(field(params, "itemId") || "");
-        const text = `${this.textByItem.get(id) || ""}${String(field(params, "delta") || "")}`;
+    private emitDelta(params: CodexNotificationParams<"item/agentMessage/delta">) {
+        const id = params.itemId;
+        const text = `${this.textByItem.get(id) || ""}${params.delta}`;
         this.textByItem.set(id, text);
         this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", text }, ...codexEventScope(params) });
     }
@@ -231,6 +239,7 @@ export class CodexAppClient {
         this.pending.clear();
         this.activeTurns.clear();
         this.currentThreadId = "";
+        this.currentTurnId = "";
     }
 }
 
@@ -248,8 +257,8 @@ function codexConfig() {
 }
 
 /** 将文本和本地图片转换为 Codex turn 输入。 */
-function codexInput(prompt: string, images: string[]) {
-    return [{ type: "text", text: prompt, text_elements: [] }, ...images.map((file) => ({ type: "localImage", path: file }))];
+function codexInput(prompt: string, images: string[]): CodexTurnInput[] {
+    return [{ type: "text", text: prompt, text_elements: [] }, ...images.map<CodexTurnInput>((file) => ({ type: "localImage", path: file }))];
 }
 
 /** 将 app-server 通知转换为前端使用的 Agent 事件。 */
@@ -260,7 +269,7 @@ function normalizeCodexNotification(method: string, params: JsonRecord): AgentEv
     if (method === "turn/completed") return { type: "turn.completed", usage: null, duration_ms: field(field(params, "turn"), "durationMs"), ...scope };
     if (method === "item/started") return { type: "item.started", item: normalizeItem(field(params, "item")), ...scope };
     if (method === "item/completed") return { type: "item.completed", item: normalizeItem(field(params, "item")), ...scope };
-    if (method === "error") return { type: "error", message: field(params, "message"), ...scope };
+    if (method === "error") return { type: "error", message: field(field(params, "error"), "message"), ...scope };
     return null;
 }
 
@@ -282,13 +291,13 @@ function normalizeItem(item: unknown) {
 }
 
 /** 将 Codex token usage 转换为前端字段。 */
-function normalizeUsage(params: JsonRecord) {
-    const last = field(field(params, "tokenUsage"), "last") as JsonRecord | undefined;
+function normalizeUsage(params: CodexNotificationParams<"thread/tokenUsage/updated">) {
+    const last = params.tokenUsage.last;
     return {
-        input_tokens: field(last, "inputTokens"),
-        cached_input_tokens: field(last, "cachedInputTokens"),
-        output_tokens: field(last, "outputTokens"),
-        reasoning_output_tokens: field(last, "reasoningOutputTokens"),
+        input_tokens: last.inputTokens,
+        cached_input_tokens: last.cachedInputTokens,
+        output_tokens: last.outputTokens,
+        reasoning_output_tokens: last.reasoningOutputTokens,
     };
 }
 

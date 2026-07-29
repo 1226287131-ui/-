@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [优化] Canvas Agent 内置 Codex CLI 升级至 0.145.0。
++ [修复] Canvas Agent 停止任务改为中断当前 Codex turn，避免终止整个 App Server 进程。
 + [新增] Canvas Agent 支持通过 `--debug` 输出详细日志并按日期保存到本地日志文件。
 + [优化] Canvas Agent Debug 日志改为简洁的纯文本单行格式。
 + [优化] 精简网页与本地 Agent 的 HTTP 诊断日志，过滤轮询和流式重复事件并改用任务摘要展示。

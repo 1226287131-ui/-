@@ -25,9 +25,9 @@ export async function runCodexTurn(prompt: string, emit: AgentEmit, attachments:
 }
 
 /** 中断当前线程正在执行的 Codex turn。 */
-export function interruptCodexTurn(threadId?: string) {
+export async function interruptCodexTurn(threadId?: string) {
     if (!codexApp || (threadId && threadId !== codexThreadId)) return false;
-    return codexApp.interruptCurrentTurn();
+    return await codexApp.interruptCurrentTurn();
 }
 
 /** 创建新的 Codex 线程并记录当前线程 ID。 */
