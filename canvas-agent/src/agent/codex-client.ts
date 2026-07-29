@@ -346,12 +346,12 @@ function codexConfig(permissionMode: AgentPermissionMode) {
 }
 
 function threadSettings(permissionMode: AgentPermissionMode) {
-    return { approvalPolicy: permissionMode === "full" ? "never" as const : "onRequest" as const, sandbox: permissionMode === "full" ? "dangerFullAccess" as const : "workspaceWrite" as const, config: codexConfig(permissionMode) };
+    return { approvalPolicy: permissionMode === "full" ? "never" as const : "on-request" as const, sandbox: permissionMode === "full" ? "danger-full-access" as const : "workspace-write" as const, config: codexConfig(permissionMode) };
 }
 
 function turnSettings(permissionMode: AgentPermissionMode) {
     return {
-        approvalPolicy: permissionMode === "full" ? "never" as const : "onRequest" as const,
+        approvalPolicy: permissionMode === "full" ? "never" as const : "on-request" as const,
         sandboxPolicy: permissionMode === "full" ? { type: "dangerFullAccess" as const } : { type: "workspaceWrite" as const, networkAccess: false },
     };
 }
