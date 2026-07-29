@@ -13,6 +13,7 @@ const initializedWorkspaces = new Set<string>();
 export type SiteWorkspaceConfig = { workspacePath: string; activeThreadId?: string; pinnedThreadIds?: string[] };
 export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; workspace?: SiteWorkspaceConfig };
 
+/** 读取本地 Canvas Agent 配置，不存在时生成默认配置。 */
 export function loadConfig(create = false): CanvasAgentConfig {
     try {
         return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) as CanvasAgentConfig;
@@ -23,11 +24,13 @@ export function loadConfig(create = false): CanvasAgentConfig {
     }
 }
 
+/** 将 Canvas Agent 配置写入用户配置目录。 */
 export function saveConfig(config: CanvasAgentConfig) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
+/** 确保站点级 Codex 工作空间存在并已初始化。 */
 export function ensureSiteWorkspace(config: CanvasAgentConfig) {
     const current = config.workspace;
     if (current?.workspacePath) {
@@ -42,6 +45,7 @@ export function ensureSiteWorkspace(config: CanvasAgentConfig) {
     return { workspacePath };
 }
 
+/** 更新站点级 Codex 工作空间配置。 */
 export function updateSiteWorkspace(config: CanvasAgentConfig, patch: Partial<SiteWorkspaceConfig>) {
     const current = ensureSiteWorkspace(config);
     const workspacePath = patch.workspacePath ? resolveWorkspacePath(patch.workspacePath) : current.workspacePath;
@@ -52,6 +56,7 @@ export function updateSiteWorkspace(config: CanvasAgentConfig, patch: Partial<Si
     return config.workspace;
 }
 
+/** 创建工作空间目录并写入默认 AGENTS.md。 */
 function initializeWorkspace(workspacePath: string) {
     if (initializedWorkspaces.has(workspacePath)) return;
     fs.mkdirSync(workspacePath, { recursive: true });
@@ -60,12 +65,14 @@ function initializeWorkspace(workspacePath: string) {
     initializedWorkspaces.add(workspacePath);
 }
 
+/** 将用户输入的工作空间路径解析为绝对路径。 */
 function resolveWorkspacePath(value: string) {
     if (value === "~") return os.homedir();
     if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
     return path.resolve(value);
 }
 
+/** 从当前包信息中读取 Canvas Agent 版本号。 */
 function readPackageVersion() {
     try {
         const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string };

@@ -1,11 +1,13 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 
-import { DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "./config.js";
-import { CanvasSession } from "./canvas-session.js";
-import { archiveCodexThread, interruptCodexTurn, isRecoverableThreadError, listCodexThreads, readCodexThread, resumeCodexThread, runClaudeTurn, runCodexTurn, startCodexThread, summarizeCodexThread, verifyCodexThreadWorkspace, withAgentPrompt } from "./agents.js";
-import { logger } from "./utils/logger.js";
-import type { AgentAttachment } from "./types.js";
+import { runClaudeTurn } from "../agent/claude.js";
+import { archiveCodexThread, interruptCodexTurn, isRecoverableThreadError, listCodexThreads, readCodexThread, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread, verifyCodexThreadWorkspace } from "../agent/codex.js";
+import type { AgentAttachment } from "../agent/types.js";
+import { CanvasSession } from "../canvas/session.js";
+import { DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "../config.js";
+import { logger } from "../utils/logger.js";
 
+/** 启动仅监听本机的 Canvas Agent HTTP 服务。 */
 export function startHttpServer() {
     const config = loadConfig(true);
     const port = Number(process.env.PORT) || Number(new URL(config.url).port) || DEFAULT_PORT;
@@ -13,11 +15,13 @@ export function startHttpServer() {
     saveConfig(config);
 
     const session = new CanvasSession();
+    /** 将 Agent 事件广播到所属线程或全部网页。 */
     const emit = (type: string, payload: unknown) => {
         const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
         const threadId = String(data.threadId || data.thread_id || ensureSiteWorkspace(config).activeThreadId || "");
         threadId ? session.emitThread(type, threadId, data) : session.emitAll(type, data);
     };
+    /** 保存并广播当前站点工作空间的活跃线程。 */
     const setActiveThread = (activeThreadId: string, payload: Record<string, unknown> = {}) => {
         const workspace = updateSiteWorkspace(config, { activeThreadId: activeThreadId || undefined });
         session.emitThread("workspace_changed", activeThreadId, { ...payload, activeThreadId });
@@ -138,6 +142,7 @@ export function startHttpServer() {
                 message: { id: String(req.body?.messageId || Date.now()), role: "user", text: String(req.body?.messageText || prompt || `发送了 ${attachments.length} 张图片`) },
             };
             let chatThreadId = "";
+            /** 将当前 turn 事件固定广播到实际线程。 */
             const turnEmit = (type: string, payload: unknown) => {
                 const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { value: payload };
                 session.emitThread(type, threadId, data);
@@ -181,7 +186,7 @@ export function startHttpServer() {
         res.json({ ok });
     });
     app.post("/agent/claude/turn", (req, res) => {
-        runClaudeTurn(withAgentPrompt(String(req.body?.prompt || "")), emit);
+        runClaudeTurn(String(req.body?.prompt || ""), emit);
         res.json({ ok: true });
     });
     app.use((_req, res) => res.status(404).json({ ok: false, error: "not found" }));
@@ -202,18 +207,22 @@ export function startHttpServer() {
     });
 }
 
+/** 将异步 Express 路由异常交给统一错误处理中间件。 */
 function route(handler: (req: Request, res: Response) => Promise<unknown>) {
     return (req: Request, res: Response, next: NextFunction) => void handler(req, res).catch(next);
 }
 
+/** 从 Express 路由参数中读取单个字符串。 */
 function routeParam(value: string | string[]) {
     return Array.isArray(value) ? value[0] || "" : value;
 }
 
+/** 结合服务配置解析当前请求 URL。 */
 function requestUrl(req: Request, config: CanvasAgentConfig) {
     return new URL(req.originalUrl || req.url || "/", config.url);
 }
 
+/** 设置跨域响应头并记录通过 token 授权的来源。 */
 function setCors(req: Request, res: Response, url: URL, config: CanvasAgentConfig) {
     const origin = req.headers.origin;
     res.setHeader("Access-Control-Allow-Origin", origin || "*");
@@ -230,11 +239,13 @@ function setCors(req: Request, res: Response, url: URL, config: CanvasAgentConfi
     return config.origins.includes(origin);
 }
 
+/** 校验请求查询参数或请求头中的连接 token。 */
 function validToken(req: Request, url: URL, token: string) {
     const header = req.headers["x-canvas-agent-token"];
     return url.searchParams.get("token") === token || header === token || (Array.isArray(header) && header.includes(token));
 }
 
+/** 向 Agent 提示词追加本轮图片附件引用说明。 */
 function withAttachmentContext(prompt: string, attachments: Array<{ id: string; name: string }>) {
     if (!attachments.length) return prompt;
     const list = attachments.map((item, index) => `${index + 1}. attachmentId=${item.id}, name=${JSON.stringify(item.name)}`).join("\n");
