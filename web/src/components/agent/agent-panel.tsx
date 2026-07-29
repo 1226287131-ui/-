@@ -3,7 +3,7 @@ import { Bot, PanelRightClose } from "lucide-react";
 import { Button, Switch, Tooltip } from "antd";
 import { motion } from "motion/react";
 
-import { CanvasLocalAgentPanel } from "@/components/canvas/canvas-local-agent-panel";
+import { LocalAgentPanel } from "./local-agent-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { CANVAS_AGENT_PANEL_MOTION_MS, useAgentStore } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -80,7 +80,7 @@ export function AgentPanel() {
                         </Tooltip>
                     </div>
                 </header>
-                <CanvasLocalAgentPanel embedded />
+                <LocalAgentPanel embedded />
             </motion.aside>
         </motion.div>
     );

@@ -1,26 +1,25 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, Tooltip } from "antd";
-import { ArrowUp, Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ImagePlus, ListChecks, LoaderCircle, Search, Square, TerminalSquare, UserRound, Wrench, X, XCircle } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Button } from "antd";
+import { Brain, CheckCircle2, ChevronDown, Circle, CircleAlert, FilePenLine, FileText, ListChecks, LoaderCircle, Search, TerminalSquare, UserRound, Wrench, XCircle } from "lucide-react";
 import { Streamdown } from "streamdown";
 
-import { isPlainEnterKey } from "@/lib/keyboard-event";
 import { canvasThemes } from "@/lib/canvas-theme";
 import type { LocalUser } from "@/stores/use-user-store";
 
-export type CanvasAgentChatAttachment = { id: string; name: string; url: string };
-export type CanvasAgentChatMessage = {
+export type AgentChatAttachment = { id: string; name: string; url: string };
+export type AgentChatMessageItem = {
     id: string;
     role: "user" | "assistant" | "system" | "tool" | "error";
     title?: string;
     text: string;
     meta?: string;
     detail?: unknown;
-    attachments?: CanvasAgentChatAttachment[];
+    attachments?: AgentChatAttachment[];
     /** Present while the message is actively streaming; cleared on completion. */
     streamId?: string;
 };
 
-export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveTool }: { item: CanvasAgentChatMessage; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
+export function AgentChatMessage({ item, theme, user, onRejectTool, onApproveTool }: { item: AgentChatMessageItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; user: LocalUser | null; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
@@ -184,117 +183,6 @@ function waitingTime(seconds: number) {
     return `已等待 ${minutes} 分 ${seconds % 60} 秒`;
 }
 
-export function AgentChatComposer({
-    prompt,
-    attachments = [],
-    disabled,
-    sending,
-    placeholder,
-    theme,
-    onPromptChange,
-    onSubmit,
-    onStop,
-    onAddFiles,
-    onRemoveAttachment,
-    left,
-}: {
-    prompt: string;
-    attachments?: CanvasAgentChatAttachment[];
-    disabled?: boolean;
-    sending?: boolean;
-    placeholder: string;
-    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    onPromptChange: (value: string) => void;
-    onSubmit: () => void;
-    onStop?: () => void;
-    onAddFiles?: (files: FileList | File[] | null) => void | Promise<void>;
-    onRemoveAttachment?: (id: string) => void;
-    left?: ReactNode;
-}) {
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const canSubmit = !disabled && !sending && Boolean(prompt.trim() || attachments.length);
-    return (
-        <div className="px-2 pb-2 pt-2" onWheelCapture={(event) => event.stopPropagation()}>
-            <div className="rounded-[24px] border px-3 pb-3 pt-3 shadow-lg" style={{ background: theme.toolbar.panel, borderColor: theme.node.stroke }}>
-                {attachments.length ? (
-                    <div className="thin-scrollbar mb-2 flex gap-2 overflow-x-auto pb-1">
-                        {attachments.map((item) => (
-                            <div key={item.id} className="group relative size-14 shrink-0 overflow-hidden rounded-xl border" style={{ borderColor: theme.node.stroke }} title={item.name}>
-                                <img src={item.url} alt={item.name} className="size-full object-cover" />
-                                {onRemoveAttachment ? (
-                                    <button type="button" className="absolute right-1 top-1 grid size-5 place-items-center rounded-full border opacity-0 shadow-sm transition group-hover:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text }} onClick={() => onRemoveAttachment(item.id)} aria-label="移除图片">
-                                        <X className="size-3" />
-                                    </button>
-                                ) : null}
-                            </div>
-                        ))}
-                    </div>
-                ) : null}
-                <textarea
-                    value={prompt}
-                    onChange={(event) => onPromptChange(event.target.value)}
-                    onPaste={(event) => {
-                        if (!onAddFiles) return;
-                        const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
-                        if (!images.length) return;
-                        event.preventDefault();
-                        void onAddFiles(images);
-                    }}
-                    onKeyDown={(event) => {
-                        if (!isPlainEnterKey(event)) return;
-                        event.preventDefault();
-                        void onSubmit();
-                    }}
-                    className="thin-scrollbar max-h-32 min-h-20 w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-5 outline-none placeholder:opacity-45"
-                    style={{ color: theme.node.text }}
-                    placeholder={placeholder}
-                />
-                <div className="mt-2 flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-1">
-                        {onAddFiles ? (
-                            <>
-                                <input ref={fileInputRef} hidden type="file" accept="image/*" multiple onChange={(event) => {
-                                    void onAddFiles(event.target.files);
-                                    event.target.value = "";
-                                }} />
-                                <Tooltip title="上传图片">
-                                    <Button type="text" shape="circle" className="!h-9 !w-9 !min-w-9" disabled={sending} style={{ color: theme.node.muted }} icon={<ImagePlus className="size-4" />} onClick={() => fileInputRef.current?.click()} />
-                                </Tooltip>
-                            </>
-                        ) : null}
-                        {left}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                        {sending && onStop ? (
-                            <Button danger shape="circle" className="!h-10 !w-10 !min-w-10" icon={<Square className="size-4" />} onClick={() => void onStop()} aria-label="停止" />
-                        ) : (
-                            <Button type="primary" shape="circle" className="!h-10 !w-10 !min-w-10" disabled={!canSubmit} icon={sending ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />} onClick={() => void onSubmit()} aria-label="发送" />
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-export function AgentPanelTabs<T extends string>({ value, items, theme, right, onChange }: { value: T; items: { value: T; label: string; icon?: ReactNode; count?: number }[]; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; right?: ReactNode; onChange: (value: T) => void }) {
-    return (
-        <div className="border-b px-3" style={{ borderColor: theme.node.stroke }}>
-            <div className="flex min-h-11 items-center justify-between gap-3">
-                <nav className="thin-scrollbar flex min-w-0 flex-1 items-center gap-3 overflow-x-auto text-sm" role="tablist" aria-label="Agent 面板">
-                    {items.map((item) => (
-                        <button key={item.value} type="button" role="tab" aria-selected={value === item.value} className={`inline-flex h-11 shrink-0 items-center gap-1.5 border-b-2 px-0.5 transition ${value === item.value ? "font-medium" : "font-normal"}`} style={{ borderColor: value === item.value ? theme.node.text : "transparent", color: value === item.value ? theme.node.text : theme.node.muted }} onClick={() => onChange(item.value)}>
-                            {item.icon}
-                            {item.label}{item.count ? ` ${item.count}` : ""}
-                        </button>
-                    ))}
-                </nav>
-                {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
-            </div>
-        </div>
-    );
-}
-
 type PlanTask = { step: string; status: string };
 type PlanDetail = { status: string; tasks: PlanTask[]; explanation?: string };
 type UserDetail = { kind?: string; status?: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }> };
@@ -351,7 +239,7 @@ function AgentUserAvatar({ user, theme }: { user: LocalUser | null; theme: (type
     );
 }
 
-function AgentMessageAttachments({ attachments }: { attachments: CanvasAgentChatAttachment[] }) {
+function AgentMessageAttachments({ attachments }: { attachments: AgentChatAttachment[] }) {
     return (
         <div className="mt-2 grid grid-cols-3 gap-1.5">
             {attachments.map((item) => (
