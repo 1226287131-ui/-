@@ -108,6 +108,10 @@ export function startHttpServer() {
         const nextWorkspace = setActiveThread(activeThreadId, { emptyThread: true });
         res.json({ ok: true, workspace: nextWorkspace, thread: summarizeCodexThread(thread), messages: [] });
     }));
+    app.post("/agent/codex/threads/reset", (req, res) => {
+        if (session.codexBusy) return res.status(409).json({ ok: false, error: "Codex 正在运行，请等待当前任务完成" });
+        res.json({ ok: true, workspace: setActiveThread("", { emptyThread: true, draftThread: true }) });
+    });
     app.get("/agent/codex/threads/:threadId", route(async (req, res) => {
         const workspace = ensureSiteWorkspace(config);
         const threadId = routeParam(req.params.threadId);

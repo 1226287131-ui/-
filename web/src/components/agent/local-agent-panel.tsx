@@ -66,7 +66,7 @@ type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: A
 type AgentThreadResponse = { ok?: boolean; workspace?: AgentWorkspace; thread?: AgentThreadSummary; messages?: AgentChatItem[] };
 type AgentCodexState = { busy?: boolean; threadId?: string; turnId?: string };
 type AgentHelloEvent = { ok?: boolean; clientId?: string; codex?: AgentCodexState };
-type AgentWorkspaceEvent = { activeThreadId?: string; threadId?: string; emptyThread?: boolean };
+type AgentWorkspaceEvent = { activeThreadId?: string; threadId?: string; emptyThread?: boolean; draftThread?: boolean };
 type AgentChatEvent = { threadId?: string; sourceClientId?: string; message?: AgentChatItem };
 
 export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?: boolean; headless?: boolean; autoConnect?: boolean }) {
@@ -119,6 +119,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     const attachmentUrlsRef = useRef(new Set<string>());
     const clientIdRef = useRef(randomId());
     const loadThreadsSequenceRef = useRef(0);
+    const resetThreadRef = useRef<Promise<unknown> | null>(null);
     const endpoint = useMemo(() => url.trim().replace(/\/$/, ""), [url]);
     const urlAgentAutoConnect = searchParams.has("agentUrl") && searchParams.has("agentToken");
     const loadThreads = useCallback(async (skipHistory = false) => {
@@ -226,7 +227,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 const keepPendingMessage = Boolean(data.emptyThread && current.sending && current.activeThreadId === nextThreadId);
                 pendingToolRef.current = null;
                 setAgentState({ activeThreadId: nextThreadId, ...(keepPendingMessage ? {} : { messages: [] }), tokenUsage: null, pendingTool: null, pendingApprovals: [] });
-                await loadThreads(Boolean(data.emptyThread));
+                if (!data.draftThread) await loadThreads(Boolean(data.emptyThread));
             });
         });
         source.addEventListener("chat_message", (event) => {
@@ -304,6 +305,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         addMessage({ id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files });
         let threadId = useAgentStore.getState().activeThreadId;
         try {
+            await resetThreadRef.current;
             if (!threadId) {
                 const created = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ permissionMode }) });
                 threadId = created.thread?.id || created.workspace?.activeThreadId || "";
@@ -576,18 +578,19 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         pendingToolRef.current = null;
     }
 
-    const startNewThread = async () => {
+    const startNewThread = () => {
         if (!connected || sending || waiting) return;
-        setAgentState({ loadingThreads: true });
-        try {
-            const data = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ permissionMode }) });
-            setAgentState({ activeThreadId: data.thread?.id || data.workspace?.activeThreadId || "", messages: [], tokenUsage: null, activeTab: "chat", activity: "新对话" });
-        } catch (error) {
+        setAgentState({ activeThreadId: "", messages: [], tokenUsage: null, activeTab: "chat", activity: "新对话", pendingTool: null, pendingApprovals: [] });
+        pendingToolRef.current = null;
+        const request = fetchAgentJson(endpoint, token, "/agent/codex/threads/reset", { method: "POST" }).catch((error) => {
             addEventLog("新建对话失败", error);
             message.error(error instanceof Error ? error.message : "新建对话失败");
-        } finally {
-            setAgentState({ loadingThreads: false });
-        }
+            throw error;
+        });
+        resetThreadRef.current = request;
+        void request.finally(() => {
+            if (resetThreadRef.current === request) resetThreadRef.current = null;
+        }).catch(() => undefined);
     };
 
     const resumeThread = async (threadId: string) => {
