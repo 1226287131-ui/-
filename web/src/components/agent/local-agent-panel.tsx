@@ -298,18 +298,18 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             addMessage({ role: "error", title: "图片过大", text: "图片附件超过 30MB，请删减后再发送。" });
             return;
         }
-        setAgentState({ activity: "发送中", sending: true });
         const messageId = createId();
         const userText = text || `发送了 ${files.length} 张图片`;
+        setAgentState({ prompt: "", attachments: [], activity: "发送中", sending: true });
+        addMessage({ id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files });
         let threadId = useAgentStore.getState().activeThreadId;
         try {
             if (!threadId) {
                 const created = await fetchAgentJson<AgentThreadResponse>(endpoint, token, "/agent/codex/threads/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ permissionMode }) });
                 threadId = created.thread?.id || created.workspace?.activeThreadId || "";
                 if (!threadId) throw new Error("新建对话失败");
-                setAgentState({ activeThreadId: threadId, messages: [], tokenUsage: null });
+                setAgentState({ activeThreadId: threadId, tokenUsage: null });
             }
-            addMessage({ id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files });
             if (files.length) void saveAgentUserMessage(threadId, { id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files }).catch(() => undefined);
             addEventLog("发送任务", `${compactText(text) || "仅附件"}${files.length ? ` · 附件 ${files.length}` : ""}`);
             const data = await fetchAgentJson<{ threadId?: string }>(endpoint, token, "/agent/codex/turn", {
@@ -330,11 +330,15 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 URL.revokeObjectURL(item.url);
                 attachmentUrlsRef.current.delete(item.url);
             });
-            setAgentState({ prompt: "", attachments: [], sending: false, waiting: true, activity: "Codex 正在运行" });
+            setAgentState({ sending: false, waiting: true, activity: "Codex 正在运行" });
         } catch (error) {
             const text = error instanceof Error ? error.message : "发送失败";
             const busy = text.includes("Codex 正在运行");
-            setAgentState({ activity: busy ? "Codex 正在运行" : "发送失败" });
+            const state = useAgentStore.getState();
+            setAgentState({
+                activity: busy ? "Codex 正在运行" : "发送失败",
+                ...(state.prompt || state.attachments.length ? {} : { prompt, attachments: files }),
+            });
             addMessage({ role: "error", title: busy ? "任务仍在运行" : "发送失败", text });
             addEventLog("发送失败", error);
         } finally {
