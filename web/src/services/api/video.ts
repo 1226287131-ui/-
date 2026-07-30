@@ -487,10 +487,13 @@ function unwrapEnvelope<T>(payload: unknown, emptyMessage: string): T {
         if (!current || typeof current !== "object") break;
         const record = current as Record<string, unknown>;
         if ("code" in record && record.code !== undefined) {
-            if (record.code !== 0 && record.code !== "0") throw new Error(readApiErrorMessage(record) || "请求失败");
-            if (!record.data) throw new Error(emptyMessage);
-            current = record.data;
-            continue;
+            if (!isSuccessfulEnvelopeCode(record.code)) throw new Error(readApiErrorMessage(record) || "请求失败");
+            if ("data" in record && record.data) {
+                current = record.data;
+                continue;
+            }
+            if (hasVideoTaskFields(record)) break;
+            throw new Error(emptyMessage);
         }
         // Some gateways wrap the task in data without returning a code field.
         if ("data" in record && record.data && !hasVideoTaskFields(record)) {
@@ -503,8 +506,15 @@ function unwrapEnvelope<T>(payload: unknown, emptyMessage: string): T {
     return current as T;
 }
 
+function isSuccessfulEnvelopeCode(code: unknown) {
+    if (code === 0 || code === "0") return true;
+    if (typeof code === "number") return code >= 200 && code < 300;
+    if (typeof code === "string" && /^2\d\d$/.test(code.trim())) return true;
+    return typeof code === "string" && ["ok", "success", "succeeded"].includes(code.trim().toLowerCase());
+}
+
 function videoResultUrl(payload: unknown, baseUrl = "") {
-    const preferredKeys = ["result_url", "video_url"];
+    const preferredKeys = ["result_url", "video_url", "download_url", "file_url"];
     const visit = (value: unknown, depth: number, includeGenericUrl: boolean): string | undefined => {
         if (!value || typeof value !== "object" || depth > 8) return undefined;
         const record = value as Record<string, unknown>;
@@ -516,7 +526,7 @@ function videoResultUrl(payload: unknown, baseUrl = "") {
             const candidate = resolveVideoUrl(record.url, baseUrl);
             if (candidate) return candidate;
         }
-        for (const key of ["metadata", "content", "result", "data", "output", "response"]) {
+        for (const key of ["metadata", "content", "result", "data", "output", "response", "video", "file", "media"]) {
             const nested = record[key];
             if (Array.isArray(nested)) {
                 for (const item of nested) {
@@ -539,7 +549,7 @@ function videoStatus(payload: unknown) {
         if (!value || typeof value !== "object" || depth > 8) return;
         const record = value as Record<string, unknown>;
         if (typeof record.status === "string") statuses.push(record.status.toLowerCase().trim());
-        for (const key of ["data", "result", "output", "response"]) {
+        for (const key of ["data", "result", "output", "response", "content", "video", "file", "media"]) {
             const nested = record[key];
             if (Array.isArray(nested)) nested.forEach((item) => visit(item, depth + 1));
             else visit(nested, depth + 1);
@@ -558,7 +568,7 @@ function isFailureStatus(status: string) {
 }
 
 function hasVideoTaskFields(value: Record<string, unknown>) {
-    return ["id", "task_id", "status", "result_url", "video_url", "url", "content", "error"].some((key) => key in value);
+    return ["id", "task_id", "status", "result_url", "video_url", "download_url", "file_url", "url", "content", "error"].some((key) => key in value);
 }
 
 function resolveVideoUrl(value: unknown, baseUrl: string) {
