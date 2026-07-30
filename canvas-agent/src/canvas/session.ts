@@ -103,8 +103,9 @@ export class CanvasSession {
     updateState(body: unknown, clientId?: string) {
         const targetClientId = clientId || this.activeClientId;
         if (!targetClientId) return;
-        this.canvasStates.set(targetClientId, { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId: targetClientId } as CanvasSnapshot);
-        logger.debug("Canvas state updated", { clientId: targetClientId, nodes: Array.isArray((body as CanvasSnapshot | null)?.nodes) ? (body as CanvasSnapshot).nodes.length : 0, connections: Array.isArray((body as CanvasSnapshot | null)?.connections) ? (body as CanvasSnapshot).connections.length : 0 });
+        const state = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), clientId: targetClientId } as CanvasSnapshot;
+        this.canvasStates.set(targetClientId, state);
+        logger.debug("Canvas state updated", { clientId: targetClientId, nodes: state.nodes?.length || 0, connections: state.connections?.length || 0 });
     }
 
     /** 将指定网页设为最近激活的工具目标。 */
