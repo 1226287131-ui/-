@@ -372,8 +372,30 @@ export function toolSummary(item?: AgentEventItem) {
     const connectionField = objectField(result, "connections");
     const nodes = Array.isArray(nodeField) ? nodeField : [];
     const connections = Array.isArray(connectionField) ? connectionField : [];
+    if (item?.tool === "canvas_get_state" && (Array.isArray(nodeField) || Array.isArray(connectionField))) return canvasContentSummary(nodes, connections.length);
     if (Array.isArray(nodeField) || Array.isArray(connectionField)) return `读取到 ${nodes.length} 个节点，${connections.length} 条连线`;
     return "工具调用完成";
+}
+
+function canvasContentSummary(nodes: unknown[], connections: number) {
+    const counts = nodes.reduce<Record<string, number>>((result, node) => {
+        const type = stringText(objectField(node, "type")) || "other";
+        result[type] = (result[type] || 0) + 1;
+        return result;
+    }, {});
+    const known = new Set(["text", "image", "config", "video", "audio", "group"]);
+    const other = Object.entries(counts).reduce((total, [type, count]) => total + (known.has(type) ? 0 : count), 0);
+    const parts = [
+        counts.text ? `${counts.text} 个文本` : "",
+        counts.image ? `${counts.image} 张图片` : "",
+        counts.config ? `${counts.config} 个配置` : "",
+        counts.video ? `${counts.video} 个视频` : "",
+        counts.audio ? `${counts.audio} 个音频` : "",
+        counts.group ? `${counts.group} 个分组` : "",
+        other ? `${other} 个其他节点` : "",
+        connections ? `${connections} 条连线` : "",
+    ].filter(Boolean);
+    return parts.length ? parts.join("、") : "当前画布为空";
 }
 
 export function toolAction(name: string) {

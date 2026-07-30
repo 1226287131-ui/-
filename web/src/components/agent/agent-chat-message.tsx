@@ -197,6 +197,7 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
     if (kind === "command") return <AgentCommandSummary text={text} detail={detail} theme={theme} />;
     const state = toolCardState(title, text, detail);
     const view = userDetail(detail);
+    const showText = title !== "读取画布" || text !== "已读取当前画布内容";
     return (
         <details className="group min-w-0 rounded-xl border px-3 py-2.5 text-left" style={{ borderColor: theme.node.stroke, background: "transparent", color: theme.node.text }}>
             <summary className={`list-none ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
@@ -206,9 +207,11 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
                     <span className="shrink-0 text-[11px]" style={{ color: state.color }}>{state.label}</span>
                     {view ? <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
                 </div>
-                <div className={`mt-1 whitespace-pre-wrap break-words pl-6 text-sm leading-5 ${kind === "command" ? "font-mono text-[12px]" : ""}`} style={{ color: state.isError ? state.color : theme.node.muted }}>
-                    {text}
-                </div>
+                {showText ? (
+                    <div className={`mt-1 whitespace-pre-wrap break-words pl-6 text-sm leading-5 ${kind === "command" ? "font-mono text-[12px]" : ""}`} style={{ color: state.isError ? state.color : theme.node.muted }}>
+                        {text}
+                    </div>
+                ) : null}
             </summary>
             {view ? <div className="ml-6"><AgentDetailBlock detail={view} theme={theme} /></div> : null}
         </details>
