@@ -36,6 +36,8 @@ export type AgentEventItem = {
     aggregatedOutput?: unknown;
     exitCode?: unknown;
     durationMs?: unknown;
+    contentItems?: unknown;
+    success?: unknown;
     changes?: unknown;
     summary?: unknown;
     query?: unknown;
@@ -94,7 +96,18 @@ export function formatAgentActivity(event: AgentEventPayload): Omit<AgentChatIte
         const name = String(item.tool || "");
         return { role: "tool", title: toolName(name), text: completed ? item.error?.message || toolSummary(item) : `正在${toolAction(name)}…`, detail: toolDetail(item, item.error ? "failed" : status) };
     }
-    if (item.type === "dynamic_tool_call") return { role: "tool", title: "使用工具", text: completed ? "已完成工具操作" : "正在执行工具操作…", detail: { kind: "tool", status } };
+    if (item.type === "dynamic_tool_call") {
+        const name = String(item.tool || "");
+        const title = toolName(name);
+        const failed = Boolean(item.error) || item.success === false || ["failed", "error"].includes(status);
+        const currentStatus = failed ? "failed" : status;
+        return {
+            role: "tool",
+            title,
+            text: completed ? item.error?.message || readableText(item.contentItems) || `${title}${failed ? "失败" : "完成"}` : `正在${toolAction(name)}…`,
+            detail: toolDetail(item, currentStatus),
+        };
+    }
     if (item.type === "collab_tool_call") return { role: "tool", title: "协作处理", text: completed ? "已完成协作任务" : "正在协作处理任务…", detail: { kind: "tool", status } };
     return null;
 }
@@ -278,6 +291,11 @@ export function isConnectionErrorMessage(item: AgentChatItem) {
 }
 
 export function toolName(name: string) {
+    if (name === "imagegen" || name.endsWith("__imagegen")) return "生成图片";
+    if (name === "view_image" || name.endsWith("__view_image")) return "查看图片";
+    if (name === "exec" || name === "exec_command" || name.endsWith("__exec_command")) return "执行命令";
+    if (name === "apply_patch" || name.endsWith("__apply_patch")) return "修改文件";
+    if (name === "web__run" || name.endsWith("__web__run")) return "搜索资料";
     if (name === "canvas_apply_ops") return "画布操作";
     if (name === "canvas_get_state") return "读取画布";
     if (name === "canvas_get_selection") return "读取选区";
@@ -304,7 +322,7 @@ export function toolName(name: string) {
     if (name === "canvas_run_generation") return "触发生成";
     if (name === "site_navigate") return "打开页面";
     if (isSiteTool(name)) return SITE_TOOL_LABELS[name];
-    return "工具操作";
+    return name ? `调用工具：${name}` : "工具操作";
 }
 
 export function siteToolSummary(name: string, result: unknown) {

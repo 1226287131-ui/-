@@ -70,7 +70,14 @@ export function threadMessages(thread: unknown, planUpdates: CodexPlanUpdate[] =
             if (type === "imageView") messages.push({ id, role: "tool", title: "查看图片", text: String(field(item, "path") || "已查看图片"), detail: { kind: "image", status: "completed" } });
             if (type === "imageGeneration") messages.push({ id, role: "tool", title: "内置生图", text: String(field(item, "savedPath") || "图片生成完成"), detail: { kind: "image", status: field(item, "status"), savedPath: field(item, "savedPath") } });
             if (type === "contextCompaction") messages.push({ id, role: "tool", title: "整理上下文", text: "已整理当前对话，继续处理任务", detail: { kind: "context", status: "completed" } });
-            if (type === "dynamicToolCall") messages.push({ id, role: "tool", title: "使用工具", text: "已完成工具操作", detail: { kind: "tool", status: field(item, "status") } });
+            if (type === "dynamicToolCall") {
+                const tool = String(field(item, "tool") || "");
+                const title = toolName(tool);
+                const error = String(field(field(item, "error"), "message") || "");
+                const status = String(field(item, "status") || "");
+                const failed = Boolean(error) || field(item, "success") === false || status === "failed" || status === "error";
+                messages.push({ id, role: "tool", title, text: error || readableText(field(item, "contentItems")) || `${title}${failed ? "失败" : "完成"}`, detail: { kind: "tool", status: failed ? "failed" : status } });
+            }
             if (type === "collabToolCall") messages.push({ id, role: "tool", title: "协作处理", text: "已完成协作任务", detail: { kind: "tool", status: field(item, "status") } });
         });
         if (planMessage && !planAdded) messages.push(planMessage);
@@ -255,6 +262,11 @@ function routeName(path: string) {
 
 /** 将 MCP 工具名称转换为聊天记录中的中文标题。 */
 function toolName(name: string) {
+    if (name === "imagegen" || name.endsWith("__imagegen")) return "生成图片";
+    if (name === "view_image" || name.endsWith("__view_image")) return "查看图片";
+    if (name === "exec" || name === "exec_command" || name.endsWith("__exec_command")) return "执行命令";
+    if (name === "apply_patch" || name.endsWith("__apply_patch")) return "修改文件";
+    if (name === "web__run" || name.endsWith("__web__run")) return "搜索资料";
     if (name === "site_navigate") return "打开页面";
     if (name === "canvas_list_projects") return "查看画布列表";
     if (name === "canvas_apply_ops") return "画布操作";
@@ -289,5 +301,5 @@ function toolName(name: string) {
     if (name === "assets_list") return "查看我的素材";
     if (name === "assets_add") return "添加到我的素材";
     if (name === "generation_get_status") return "查看生成状态";
-    return "工具操作";
+    return name ? `调用工具：${name}` : "工具操作";
 }
