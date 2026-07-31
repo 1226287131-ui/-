@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Tooltip } from "antd";
+import dayjs from "dayjs";
 import { Bot, History, MessageSquare, PanelRightClose, PlugZap, Plus, Terminal } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -673,7 +674,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         const value = normalizeText(text) || title;
         const last = useAgentStore.getState().eventLogs.at(-1);
         if (last?.title === title && last.text === value) return;
-        pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: new Date().toLocaleTimeString(), title, text: value, raw });
+        pushEventLog({ id: `${Date.now()}-${Math.random()}`, time: dayjs().format("YYYY-MM-DD HH:mm:ss"), title, text: value, raw });
     };
 
     const upsertActivityMessage = (item: AgentChatItem) => {

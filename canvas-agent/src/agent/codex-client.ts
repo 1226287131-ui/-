@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import stripAnsi from "strip-ansi";
 
 import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
@@ -43,7 +44,7 @@ export class CodexAppClient {
         const client = new CodexAppClient(child, emit);
         child.stdout?.on("data", (chunk) => client.read(chunk.toString()));
         child.stderr?.on("data", (chunk) => {
-            const text = chunk.toString();
+            const text = stripAnsi(chunk.toString()).replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, "");
             logger.warn("Codex app-server stderr", { text });
             emit("agent_log", { text });
         });
