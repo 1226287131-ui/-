@@ -1,0 +1,6 @@
+[Unit]
+Description=Cleanup expired wxhb video reference media
+
+[Service]
+Type=oneshot
+ExecStart=/www/server/php/82/bin/php /www/server/wxhb-local-media/local-media-cleanup.php

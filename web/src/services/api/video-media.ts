@@ -53,7 +53,7 @@ async function resolveReference(reference: MediaReference) {
 
 async function uploadRemoteMedia(items: Array<{ reference: MediaReference; blob: Blob }>) {
     const form = new FormData();
-    for (const item of items) form.append("files", item.blob, item.reference.name || `reference-${Date.now()}`);
+    for (const item of items) form.append("files[]", item.blob, item.reference.name || `reference-${Date.now()}`);
     try {
         const response = await axios.post<{ files?: UploadedRemoteFile[]; error?: string }>(MEDIA_UPLOAD_URL, form, { timeout: 180000 });
         const files = Array.isArray(response.data?.files) ? response.data.files : [];
