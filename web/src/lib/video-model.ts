@@ -16,30 +16,30 @@ export type VideoModelProfile = {
 
 const VIDEO_V1_PROFILE: VideoModelProfile = {
     kind: "video-v1",
-    seconds: [5, 10, 15],
-    ratios: ["16:9", "9:16", "1:1"],
-    maxImages: 10,
+    seconds: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    ratios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    maxImages: 9,
     maxVideos: 0,
     maxAudios: 0,
-    imageMaxBytes: 20 * 1024 * 1024,
+    imageMaxBytes: 12 * 1024 * 1024,
     videoMaxBytes: 0,
     audioMaxBytes: 0,
-    resolution: "quality",
-    qualityOptions: ["hd", "sd"],
+    resolution: "fixed",
+    qualityOptions: ["720p"],
 };
 
 const VIDEO_V2_PROFILE: VideoModelProfile = {
     kind: "video-v2",
-    seconds: [5, 10, 15],
-    ratios: ["16:9", "9:16", "1:1"],
+    seconds: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     maxImages: 9,
     maxVideos: 3,
     maxAudios: 3,
-    imageMaxBytes: 20 * 1024 * 1024,
-    videoMaxBytes: 200 * 1024 * 1024,
-    audioMaxBytes: 50 * 1024 * 1024,
-    resolution: "fixed",
-    qualityOptions: ["720p"],
+    imageMaxBytes: 12 * 1024 * 1024,
+    videoMaxBytes: 48 * 1024 * 1024,
+    audioMaxBytes: 16 * 1024 * 1024,
+    resolution: "selectable",
+    qualityOptions: ["480p", "720p", "1080p"],
 };
 
 const GROK_PROFILE: VideoModelProfile = {
@@ -108,9 +108,12 @@ export function normalizeVideoSizeForModel(model: string, value: string) {
 
 export function normalizeVideoQualityForModel(model: string, value: string) {
     const profile = getVideoModelProfile(model);
-    if (profile.kind === "video-v1") return value === "sd" || value === "480" || value === "480p" ? "sd" : "hd";
+    if (profile.kind === "video-v1") return "720p";
     if (profile.kind === "grok") return "high";
-    if (profile.kind === "video-v2") return "720p";
+    if (profile.kind === "video-v2") {
+        const normalized = String(value || "").trim().toLowerCase().replace(/p$/, "");
+        return ["480", "720", "1080"].includes(normalized) ? `${normalized}p` : "720p";
+    }
     return value;
 }
 

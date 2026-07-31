@@ -187,12 +187,9 @@ async function createVideoV1Task(config: AiConfig, model: string, prompt: string
         model: modelOptionName(model),
         prompt: compileVideoV1Prompt(prompt, references.length),
         duration: Number(normalizeVideoSecondsForModel(model, config.videoSeconds)),
-        ratio: normalizeVideoRatioForModel(model, config.size),
-        quality: normalizeVideoQualityForModel(model, config.vquality),
-        async: true,
+        aspect_ratio: normalizeVideoRatioForModel(model, config.size),
     };
-    if (media.images.length === 1) payload.image = media.images[0];
-    if (media.images.length > 1) payload.images = media.images;
+    if (media.images.length) payload.images = media.images;
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/video/generations"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
         const id = taskIdOf(created);
@@ -212,9 +209,10 @@ async function createVideoV2Task(config: AiConfig, model: string, prompt: string
         images: media.images,
         videos: media.videos,
         audios: media.audios,
-        ratio: normalizeVideoRatioForModel(model, config.size),
+        aspect_ratio: normalizeVideoRatioForModel(model, config.size),
         duration: Number(normalizeVideoSecondsForModel(model, config.videoSeconds)),
-        resolution: "720p",
+        resolution: normalizeVideoQualityForModel(model, config.vquality),
+        generate_audio: boolConfig(config.videoGenerateAudio, true),
     };
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
