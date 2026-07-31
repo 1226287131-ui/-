@@ -1,6 +1,4 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Button, Tooltip } from "antd";
-import { ChevronDown } from "lucide-react";
 import { motion, useSpring, useTransform } from "motion/react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -8,6 +6,7 @@ import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
 import { useAgentStore, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
 import { AgentApprovalCard, AgentChatMessage, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
 import { agentMessageToChatMessage, currentPlanMessage, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
+import { AgentScrollToBottom } from "./agent-scroll-to-bottom";
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
 const historyMessageStyle = { contentVisibility: "auto", containIntrinsicSize: "0 80px" } as const;
@@ -57,7 +56,7 @@ export function AgentChatTimeline({
     }, [messages, pendingApprovals, pendingTool, scrollToBottom, updateScrollState, waiting]);
     return (
         <div className="relative min-h-0 flex-1">
-            <div ref={listRef} className="thin-scrollbar h-full select-text space-y-4 overflow-y-auto px-4 pb-12 pt-4" onScroll={updateScrollState}>
+            <div ref={listRef} className="thin-scrollbar h-full select-text space-y-4 overflow-y-auto px-4 pt-4" onScroll={updateScrollState}>
                 {messages.map((item) => (
                     isPlanMessage(item) ? null : <AgentChatMessageRow key={item.id} item={item} theme={theme} />
                 ))}
@@ -74,17 +73,7 @@ export function AgentChatTimeline({
                 {(sending || waiting) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} activityKey={working.key} theme={theme} /> : null}
             </div>
             {showScrollToBottom ? (
-                <Tooltip title="滚动到底部" placement="left">
-                    <Button
-                        type="text"
-                        shape="circle"
-                        aria-label="滚动到底部"
-                        className="!absolute bottom-3 left-1/2 z-10 !h-8 !w-8 !min-w-8 -translate-x-1/2 backdrop-blur transition hover:-translate-y-0.5"
-                        style={{ background: theme.toolbar.panel, border: `1px solid ${theme.node.stroke}`, color: theme.node.text }}
-                        icon={<ChevronDown className="size-4" />}
-                        onClick={() => scrollToBottom()}
-                    />
-                </Tooltip>
+                <AgentScrollToBottom theme={theme} title="查看最新消息" onClick={() => scrollToBottom()} />
             ) : null}
         </div>
     );
