@@ -16,7 +16,7 @@ export type VideoModelProfile = {
 
 const VIDEO_V1_PROFILE: VideoModelProfile = {
     kind: "video-v1",
-    seconds: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    seconds: [5, 10, 15],
     ratios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
     maxImages: 9,
     maxVideos: 0,
@@ -30,7 +30,7 @@ const VIDEO_V1_PROFILE: VideoModelProfile = {
 
 const VIDEO_V2_PROFILE: VideoModelProfile = {
     kind: "video-v2",
-    seconds: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    seconds: [5, 10, 15],
     ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     maxImages: 9,
     maxVideos: 3,

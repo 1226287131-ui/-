@@ -120,7 +120,6 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
     const ratio = normalizeVideoRatioForModel(model, config.size);
     const quality = normalizeVideoQualityForModel(model, config.vquality);
     const isGrok = profile.kind === "grok";
-    const usesDurationSlider = profile.kind === "video-v1" || profile.kind === "video-v2";
     const size = normalizeVideoSizeForModel(model, config.size);
     const ratioLabels: Record<string, string> = { "21:9": "超宽", "16:9": "横屏", "9:16": "竖屏", "1:1": "方形", "4:3": "标准", "3:4": "长幅" };
 
@@ -164,7 +163,7 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title="秒数" color={theme.node.muted}>
-                    {usesDurationSlider ? <DurationSlider value={seconds} min={5} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} /> : <div className="grid grid-cols-3 gap-2.5">{profile.seconds.map((value) => <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>{value}s</OptionPill>)}</div>}
+                    <div className="grid grid-cols-3 gap-2.5">{profile.seconds.map((value) => <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>{value}s</OptionPill>)}</div>
                 </SettingGroup>
             </div>
         </ImageSettingsTheme>
@@ -311,34 +310,6 @@ function DimensionInput({ prefix, value, disabled, theme, onChange }: { prefix: 
 
 function NumberInput({ value, min, max, theme, onChange }: { value: string; min: number; max: number; theme: CanvasTheme; onChange: (value: string) => void }) {
     return <input type="number" min={min} max={max} className="h-9 rounded-full border bg-transparent px-3 text-center text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" style={{ borderColor: theme.node.stroke, color: theme.node.text, WebkitTextFillColor: theme.node.text }} value={value} onChange={(event) => onChange(event.target.value)} onMouseDown={(event) => event.stopPropagation()} />;
-}
-
-function DurationSlider({ value, min, max, theme, onChange }: { value: string; min: number; max: number; theme: CanvasTheme; onChange: (value: string) => void }) {
-    const current = Math.min(max, Math.max(min, Math.floor(Number(value) || min)));
-    return (
-        <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs" style={{ color: theme.node.muted }}>
-                <span>{min}s</span>
-                <output className="font-semibold tabular-nums" style={{ color: theme.node.text }} aria-live="polite">
-                    {current}s
-                </output>
-                <span>{max}s</span>
-            </div>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={1}
-                value={current}
-                aria-label="视频时长"
-                className="h-11 w-full cursor-pointer accent-current"
-                style={{ accentColor: theme.node.text }}
-                onPointerDown={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-                onChange={(event) => onChange(event.target.value)}
-            />
-        </div>
-    );
 }
 
 function SizePreview({ width, height, color }: { width: number; height: number; color: string }) {
