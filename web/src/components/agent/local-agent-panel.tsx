@@ -231,7 +231,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             enqueueEvent(async () => {
                 const nextThreadId = data.activeThreadId ?? data.threadId ?? "";
                 const current = useAgentStore.getState();
-                const keepPendingMessage = Boolean(data.emptyThread && current.sending && current.activeThreadId === nextThreadId);
+                const keepPendingMessage = Boolean(data.emptyThread && current.sending && current.messages.some((message) => message.role === "user"));
                 pendingToolRef.current = null;
                 setAgentState({ activeThreadId: nextThreadId, ...(keepPendingMessage ? {} : { messages: [] }), tokenUsage: null, pendingTool: null, pendingApprovals: [] });
                 if (!data.draftThread) await loadThreads(Boolean(data.emptyThread));
