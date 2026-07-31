@@ -10,6 +10,7 @@ import { AgentApprovalCard, AgentChatMessage, AgentPendingToolCard, AgentToolCar
 import { agentMessageToChatMessage, currentPlanMessage, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
+const historyMessageStyle = { contentVisibility: "auto", containIntrinsicSize: "0 80px" } as const;
 
 export function AgentChatTimeline({
     theme,
@@ -101,7 +102,7 @@ export function AgentTaskProgress({ theme, busy }: { theme: (typeof canvasThemes
 
 const AgentChatMessageRow = memo(function AgentChatMessageRow({ item, theme }: { item: AgentChatItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     return (
-        <div style={{ contentVisibility: "auto", containIntrinsicSize: "0 80px" }}>
+        <div style={item.streamId ? undefined : historyMessageStyle}>
             <AgentChatMessage item={agentMessageToChatMessage(item)} theme={theme} />
         </div>
     );
