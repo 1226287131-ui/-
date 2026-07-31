@@ -61,6 +61,8 @@ import { AgentPanelTabs } from "./agent-panel-tabs";
 const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_PAYLOAD_BYTES = 28 * 1024 * 1024;
 const DEFAULT_AGENT_URL = "http://127.0.0.1:17371";
+const AGENT_REASONING_EFFORTS = new Set<AgentReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const AGENT_REASONING_LABELS: Record<AgentReasoningEffort, string> = { minimal: "最低", low: "轻度", medium: "中", high: "高", xhigh: "极高", max: "最高", ultra: "Ultra" };
 
 type AgentWorkspace = { workspacePath: string; activeThreadId?: string };
 type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: AgentThreadSummary[] };
@@ -285,15 +287,24 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     useEffect(() => {
         if (!connected) return;
         void fetchAgentJson<AgentModelsResponse>(endpoint, token, "/agent/codex/models").then(({ data = [] }) => {
-            if (!data.length) return;
+            const names = new Set<string>();
+            const models = data.flatMap((item) => {
+                const name = item.displayName || item.model;
+                const efforts = item.supportedReasoningEfforts.filter(({ reasoningEffort }) => AGENT_REASONING_EFFORTS.has(reasoningEffort));
+                if (item.model === "codex-auto-review" || names.has(name) || !efforts.length) return [];
+                names.add(name);
+                const defaultReasoningEffort = efforts.some((effort) => effort.reasoningEffort === item.defaultReasoningEffort) ? item.defaultReasoningEffort : efforts[0].reasoningEffort;
+                return [{ ...item, supportedReasoningEfforts: efforts, defaultReasoningEffort }];
+            });
+            if (!models.length) return;
             const savedModel = useAgentStore.getState().model;
-            const current = data.find((item) => item.model === savedModel) || data.find((item) => item.isDefault) || data[0];
+            const current = models.find((item) => item.model === savedModel) || models.find((item) => item.isDefault) || models[0];
             const savedEffort = useAgentStore.getState().reasoningEffort;
             const efforts = current.supportedReasoningEfforts.map((item) => item.reasoningEffort);
             const nextEffort = efforts.includes(savedEffort as AgentReasoningEffort) ? savedEffort as AgentReasoningEffort : current.defaultReasoningEffort || efforts[0];
             localStorage.setItem("canvas-agent-model", current.model);
             localStorage.setItem("canvas-agent-reasoning-effort", nextEffort);
-            setAgentState({ models: data, model: current.model, reasoningEffort: nextEffort });
+            setAgentState({ models, model: current.model, reasoningEffort: nextEffort });
         }).catch((error) => addEventLog("读取模型列表失败", error));
     }, [connected, endpoint, setAgentState, token]);
 
@@ -333,7 +344,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 setAgentState({ activeThreadId: threadId, tokenUsage: null });
             }
             if (files.length) void saveAgentUserMessage(threadId, { id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files }).catch(() => undefined);
-            addEventLog("发送任务", `${compactText(text) || "仅附件"}${files.length ? ` · 附件 ${files.length}` : ""}`);
+            const modelName = models.find((item) => item.model === model)?.displayName || model || "默认模型";
+            const effortName = reasoningEffort ? AGENT_REASONING_LABELS[reasoningEffort] : "默认强度";
+            addEventLog("发送任务", `${modelName} · ${effortName}${files.length ? ` · 附件 ${files.length}` : ""} · ${compactText(text) || "仅附件"}`);
             const data = await fetchAgentJson<{ threadId?: string }>(endpoint, token, "/agent/codex/turn", {
                 method: "POST",
                 headers: { "content-type": "application/json" },

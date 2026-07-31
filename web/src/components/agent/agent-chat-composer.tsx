@@ -1,7 +1,8 @@
 import { useRef, type ReactNode } from "react";
 import { Button, Dropdown, Tooltip } from "antd";
-import { ArrowUp, Check, ChevronUp, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Sparkles, Square, X } from "lucide-react";
+import { ArrowUp, Check, ChevronUp, Cpu, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
 
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isPlainEnterKey } from "@/lib/keyboard-event";
 import type { AgentModel, AgentPermissionMode, AgentReasoningEffort } from "@/stores/use-agent-store";
@@ -105,7 +106,7 @@ export function AgentChatComposer({
                         ) : null}
                         {onConfirmToolsChange ? <ToolConfirmationMenu confirmTools={Boolean(confirmTools)} theme={theme} onChange={onConfirmToolsChange} /> : null}
                         {permissionMode && onPermissionModeChange ? <PermissionModeMenu permissionMode={permissionMode} theme={theme} onChange={onPermissionModeChange} /> : null}
-                        {models?.length && model && reasoningEffort && onModelChange && onReasoningEffortChange ? <AgentModelMenu models={models} model={model} reasoningEffort={reasoningEffort} theme={theme} onModelChange={onModelChange} onReasoningEffortChange={onReasoningEffortChange} /> : null}
+                        {models?.length && model && reasoningEffort && onModelChange && onReasoningEffortChange ? <AgentModelControls models={models} model={model} reasoningEffort={reasoningEffort} onModelChange={onModelChange} onReasoningEffortChange={onReasoningEffortChange} /> : null}
                         {left}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -121,42 +122,28 @@ export function AgentChatComposer({
     );
 }
 
-function AgentModelMenu({ models, model, reasoningEffort, theme, onModelChange, onReasoningEffortChange }: { models: AgentModel[]; model: string; reasoningEffort: AgentReasoningEffort; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onModelChange: (model: string) => void; onReasoningEffortChange: (effort: AgentReasoningEffort) => void }) {
+function AgentModelControls({ models, model, reasoningEffort, onModelChange, onReasoningEffortChange }: { models: AgentModel[]; model: string; reasoningEffort: AgentReasoningEffort; onModelChange: (model: string) => void; onReasoningEffortChange: (effort: AgentReasoningEffort) => void }) {
     const current = models.find((item) => item.model === model) || models[0];
     return (
-        <Dropdown
-            trigger={["click"]}
-            placement="topLeft"
-            menu={{
-                items: [
-                    {
-                        key: "model",
-                        label: "模型",
-                        children: models.map((item) => ({
-                            key: item.model,
-                            label: <PickerOption title={item.displayName || item.model} selected={item.model === model} />,
-                            onClick: () => onModelChange(item.model),
-                        })),
-                    },
-                    {
-                        key: "effort",
-                        label: "推理强度",
-                        children: current.supportedReasoningEfforts.map((item) => ({
-                            key: item.reasoningEffort,
-                            label: <PickerOption title={effortLabels[item.reasoningEffort]} selected={item.reasoningEffort === reasoningEffort} />,
-                            onClick: () => onReasoningEffortChange(item.reasoningEffort),
-                        })),
-                    },
-                ],
-            }}
-        >
-            <button type="button" className="flex h-9 min-w-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="选择 Codex 模型和推理强度">
-                <Sparkles className="size-3.5 shrink-0" />
-                <span className="max-w-28 truncate">{current.displayName || current.model}</span>
-                <span className="shrink-0 opacity-55">{effortLabels[reasoningEffort]}</span>
-                <ChevronUp className="size-3 shrink-0 opacity-50" />
-            </button>
-        </Dropdown>
+        <div className="flex min-w-0 items-center gap-1">
+            <Select value={model} onValueChange={onModelChange}>
+                <SelectTrigger className="h-9 min-w-0 max-w-36 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium shadow-none hover:bg-black/5 focus:ring-0 dark:bg-transparent dark:hover:bg-white/10" title={current.displayName || current.model} aria-label="选择 Codex 模型">
+                    <Cpu className="size-3.5 shrink-0 opacity-70" />
+                    <span className="min-w-0 flex-1 truncate text-left">{current.displayName || current.model}</span>
+                </SelectTrigger>
+                <SelectContent data-canvas-no-zoom position="popper" side="top" align="start" sideOffset={6} className="z-[1200] w-64 rounded-xl border border-border/70 bg-popover p-1 shadow-xl">
+                    {models.map((item) => <SelectItem key={item.model} value={item.model}>{item.displayName || item.model}</SelectItem>)}
+                </SelectContent>
+            </Select>
+            <Select value={reasoningEffort} onValueChange={(value) => onReasoningEffortChange(value as AgentReasoningEffort)}>
+                <SelectTrigger className="h-9 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium shadow-none hover:bg-black/5 focus:ring-0 dark:bg-transparent dark:hover:bg-white/10" aria-label="选择推理强度">
+                    <span>{effortLabels[reasoningEffort]}</span>
+                </SelectTrigger>
+                <SelectContent data-canvas-no-zoom position="popper" side="top" align="start" sideOffset={6} className="z-[1200] min-w-32 rounded-xl border border-border/70 bg-popover p-1 shadow-xl">
+                    {current.supportedReasoningEfforts.map((item) => <SelectItem key={item.reasoningEffort} value={item.reasoningEffort}>{effortLabels[item.reasoningEffort]}</SelectItem>)}
+                </SelectContent>
+            </Select>
+        </div>
     );
 }
 
@@ -166,16 +153,9 @@ const effortLabels: Record<AgentReasoningEffort, string> = {
     medium: "中",
     high: "高",
     xhigh: "极高",
+    max: "最高",
+    ultra: "Ultra",
 };
-
-function PickerOption({ title, selected }: { title: string; selected: boolean }) {
-    return (
-        <div className="flex min-w-48 items-center gap-3 py-0.5">
-            <span className="min-w-0 flex-1 text-sm font-medium">{title}</span>
-            {selected ? <Check className="size-4 shrink-0" /> : null}
-        </div>
-    );
-}
 
 function PermissionModeMenu({ permissionMode, theme, onChange }: { permissionMode: AgentPermissionMode; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onChange: (permissionMode: AgentPermissionMode) => void }) {
     const current = permissionOptions.find((item) => item.key === permissionMode) || permissionOptions[0];

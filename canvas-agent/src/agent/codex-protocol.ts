@@ -6,7 +6,7 @@ export type CodexTurnError = JsonRecord & { message: string };
 export type CodexItem = JsonRecord & { id: string; type: string; text?: string };
 export type CodexPlanStep = { step: string; status: "pending" | "inProgress" | "completed" };
 export type CodexPlanUpdate = { threadId: string; turnId: string; explanation?: string | null; plan: CodexPlanStep[]; turnStatus?: string };
-export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type CodexModel = JsonRecord & {
     id: string;
     model: string;

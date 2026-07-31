@@ -148,7 +148,9 @@ export function startHttpServer() {
         const prompt = String(req.body?.prompt || "");
         if (!prompt.trim()) return res.status(400).json({ ok: false, error: "请输入任务内容" });
         const clientId = String(req.body?.clientId || "");
-        logger.info("Codex turn accepted", { threadId: req.body?.threadId, promptLength: prompt.length, attachmentCount: attachments.length });
+        const model = String(req.body?.model || "") || undefined;
+        const effort = reasoningEffort(req.body?.effort);
+        logger.info("Codex turn accepted", { threadId: req.body?.threadId, model: model || "default", reasoningEffort: effort || "default", promptLength: prompt.length, attachmentCount: attachments.length });
         session.setCodexState({ busy: true, threadId: String(req.body?.threadId || workspace.activeThreadId || ""), turnId: "" });
         try {
             let threadId = String(req.body?.threadId || workspace.activeThreadId || "");
@@ -176,8 +178,8 @@ export function startHttpServer() {
                 threadId,
                 cwd: workspace.workspacePath,
                 permissionMode: permissionMode(req.body?.permissionMode),
-                model: String(req.body?.model || "") || undefined,
-                effort: reasoningEffort(req.body?.effort),
+                model,
+                effort,
                 appEmit: emit,
                 onStart: clientId ? () => session.bindClient(clientId) : undefined,
                 onThread: (actualThreadId) => {
@@ -193,7 +195,7 @@ export function startHttpServer() {
                 },
                 onTurn: (actualTurnId) => {
                     turnId = actualTurnId;
-                    logger.info("Codex turn started", { threadId, turnId });
+                    logger.info("Codex turn started", { threadId, turnId, model: model || "default", reasoningEffort: effort || "default" });
                     session.setCodexState({ busy: true, threadId, turnId });
                 },
                 onFinish: () => {
@@ -254,7 +256,7 @@ function permissionMode(value: unknown): AgentPermissionMode {
 }
 
 function reasoningEffort(value: unknown): CodexReasoningEffort | undefined {
-    return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh" ? value : undefined;
+    return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max" || value === "ultra" ? value : undefined;
 }
 
 /** 使用当前操作系统的文件管理器定位本地文件。 */
