@@ -6,9 +6,10 @@ import { logger } from "../utils/logger.js";
 import { errorMessage, field } from "../utils/value.js";
 import { CodexAppClient } from "./codex-client.js";
 import { summarizeCodexThread, threadMessages } from "./codex-history.js";
+import type { CodexReasoningEffort } from "./codex-protocol.js";
 import type { AgentAttachment, AgentEmit, AgentPermissionMode } from "./types.js";
 
-type CodexRunOptions = { threadId?: string; cwd?: string; permissionMode?: AgentPermissionMode; appEmit?: AgentEmit; onStart?: () => void; onThread?: (threadId: string) => void; onTurn?: (turnId: string) => void; onFinish?: () => void };
+type CodexRunOptions = { threadId?: string; cwd?: string; permissionMode?: AgentPermissionMode; model?: string; effort?: CodexReasoningEffort; appEmit?: AgentEmit; onStart?: () => void; onThread?: (threadId: string) => void; onTurn?: (turnId: string) => void; onFinish?: () => void };
 
 let codexQueue: Promise<unknown> = Promise.resolve();
 let codexApp: CodexAppClient | null = null;
@@ -71,6 +72,11 @@ export async function listCodexThreads(emit: AgentEmit, options: { cwd: string; 
     return { data, nextCursor: field(result, "nextCursor") || null, backwardsCursor: field(result, "backwardsCursor") || null };
 }
 
+/** 查询当前账号可用于新任务的 Codex 模型。 */
+export async function listCodexModels(emit: AgentEmit) {
+    return await (await getCodexApp(emit)).listModels();
+}
+
 /** 读取指定 Codex 线程及其聊天历史。 */
 export async function readCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
     const app = await getCodexApp(emit);
@@ -115,7 +121,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
         options.onThread?.(threadId);
         unmaterializedThreadIds.delete(threadId);
         try {
-            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.onTurn);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn);
         } catch (error) {
             if (!isRecoverableThreadError(error)) throw error;
             emit("agent_log", { text: `Codex thread unavailable, starting a new thread: ${errorMessage(error)}` });
@@ -123,7 +129,7 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
             threadId = await ensureCodexThread(app, { cwd: options.cwd }, emit);
             options.onThread?.(threadId);
             unmaterializedThreadIds.delete(threadId);
-            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.onTurn);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn);
         }
     } catch (error) {
         logger.error("Codex turn failed", error);

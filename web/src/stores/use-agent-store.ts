@@ -8,6 +8,15 @@ export type AgentChatItem = { id: string; role: AgentChatRole; title?: string; t
 export type AgentEventLog = { id: string; time: string; title: string; text: string; raw?: unknown };
 export type AgentPendingToolCall = { requestId: string; name: string; input?: { ops?: CanvasAgentOp[]; path?: string } & Record<string, unknown> };
 export type AgentPermissionMode = "request" | "automatic" | "full";
+export type AgentReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type AgentModel = {
+    id: string;
+    model: string;
+    displayName: string;
+    defaultReasoningEffort: AgentReasoningEffort;
+    supportedReasoningEfforts: Array<{ reasoningEffort: AgentReasoningEffort; description?: string }>;
+    isDefault?: boolean;
+};
 export type AgentPendingApproval = { requestId: string; method: string; threadId?: string; turnId?: string; itemId?: string; reason?: string; command?: unknown; cwd?: string; grantRoot?: string; networkApprovalContext?: unknown; permissions?: unknown };
 export type AgentCanvasContext = { snapshot: CanvasAgentSnapshot; applyOps: (ops?: CanvasAgentOp[]) => CanvasAgentSnapshot; undoOps: () => CanvasAgentSnapshot | null; canUndo: boolean };
 export type AgentThreadSummary = { id: string; preview: string; name?: string | null; cwd?: string; status?: string; source?: unknown; createdAt?: number; updatedAt?: number };
@@ -43,6 +52,9 @@ type AgentStore = {
     activeTab: AgentPanelTab;
     confirmTools: boolean;
     permissionMode: AgentPermissionMode;
+    models: AgentModel[];
+    model: string;
+    reasoningEffort: AgentReasoningEffort | "";
     activity: string;
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
@@ -86,6 +98,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     activeTab: "setup",
     confirmTools: false,
     permissionMode: typeof window === "undefined" ? "request" : (localStorage.getItem("canvas-agent-permission-mode") as AgentPermissionMode) || "request",
+    models: [],
+    model: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-model") || "",
+    reasoningEffort: typeof window === "undefined" ? "" : (localStorage.getItem("canvas-agent-reasoning-effort") as AgentReasoningEffort) || "",
     activity: "就绪",
     connectError: "",
     pendingTool: null,

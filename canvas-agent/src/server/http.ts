@@ -4,7 +4,8 @@ import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { runClaudeTurn } from "../agent/claude.js";
-import { archiveCodexThread, interruptCodexTurn, isRecoverableThreadError, listCodexThreads, readCodexThread, resolveCodexApproval, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread, verifyCodexThreadWorkspace } from "../agent/codex.js";
+import { archiveCodexThread, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexThreads, readCodexThread, resolveCodexApproval, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread, verifyCodexThreadWorkspace } from "../agent/codex.js";
+import type { CodexReasoningEffort } from "../agent/codex-protocol.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { CanvasSession } from "../canvas/session.js";
 import { DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "../config.js";
@@ -96,6 +97,7 @@ export function startHttpServer() {
         const workspace = ensureSiteWorkspace(config);
         res.json({ ok: true, workspace });
     });
+    app.get("/agent/codex/models", route(async (_req, res) => res.json({ ok: true, ...(await listCodexModels(emit)) })));
     app.get("/agent/codex/threads", route(async (req, res) => {
         const workspace = ensureSiteWorkspace(config);
         const result = await listCodexThreads(emit, { cwd: workspace.workspacePath, searchTerm: String(req.query.searchTerm || "") });
@@ -174,6 +176,8 @@ export function startHttpServer() {
                 threadId,
                 cwd: workspace.workspacePath,
                 permissionMode: permissionMode(req.body?.permissionMode),
+                model: String(req.body?.model || "") || undefined,
+                effort: reasoningEffort(req.body?.effort),
                 appEmit: emit,
                 onStart: clientId ? () => session.bindClient(clientId) : undefined,
                 onThread: (actualThreadId) => {
@@ -247,6 +251,10 @@ function routeParam(value: string | string[]) {
 
 function permissionMode(value: unknown): AgentPermissionMode {
     return value === "automatic" || value === "full" ? value : "request";
+}
+
+function reasoningEffort(value: unknown): CodexReasoningEffort | undefined {
+    return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh" ? value : undefined;
 }
 
 /** 使用当前操作系统的文件管理器定位本地文件。 */

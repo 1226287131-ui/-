@@ -1,10 +1,10 @@
 import { useRef, type ReactNode } from "react";
 import { Button, Dropdown, Tooltip } from "antd";
-import { ArrowUp, Check, ChevronUp, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
+import { ArrowUp, Check, ChevronUp, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Sparkles, Square, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isPlainEnterKey } from "@/lib/keyboard-event";
-import type { AgentPermissionMode } from "@/stores/use-agent-store";
+import type { AgentModel, AgentPermissionMode, AgentReasoningEffort } from "@/stores/use-agent-store";
 import type { AgentChatAttachment } from "./agent-chat-message";
 
 export function AgentChatComposer({
@@ -23,6 +23,11 @@ export function AgentChatComposer({
     onConfirmToolsChange,
     permissionMode,
     onPermissionModeChange,
+    models,
+    model,
+    reasoningEffort,
+    onModelChange,
+    onReasoningEffortChange,
     left,
 }: {
     prompt: string;
@@ -40,6 +45,11 @@ export function AgentChatComposer({
     onConfirmToolsChange?: (confirmTools: boolean) => void;
     permissionMode?: AgentPermissionMode;
     onPermissionModeChange?: (permissionMode: AgentPermissionMode) => void;
+    models?: AgentModel[];
+    model?: string;
+    reasoningEffort?: AgentReasoningEffort | "";
+    onModelChange?: (model: string) => void;
+    onReasoningEffortChange?: (effort: AgentReasoningEffort) => void;
     left?: ReactNode;
 }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,6 +105,7 @@ export function AgentChatComposer({
                         ) : null}
                         {onConfirmToolsChange ? <ToolConfirmationMenu confirmTools={Boolean(confirmTools)} theme={theme} onChange={onConfirmToolsChange} /> : null}
                         {permissionMode && onPermissionModeChange ? <PermissionModeMenu permissionMode={permissionMode} theme={theme} onChange={onPermissionModeChange} /> : null}
+                        {models?.length && model && reasoningEffort && onModelChange && onReasoningEffortChange ? <AgentModelMenu models={models} model={model} reasoningEffort={reasoningEffort} theme={theme} onModelChange={onModelChange} onReasoningEffortChange={onReasoningEffortChange} /> : null}
                         {left}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -106,6 +117,62 @@ export function AgentChatComposer({
                     </div>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function AgentModelMenu({ models, model, reasoningEffort, theme, onModelChange, onReasoningEffortChange }: { models: AgentModel[]; model: string; reasoningEffort: AgentReasoningEffort; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onModelChange: (model: string) => void; onReasoningEffortChange: (effort: AgentReasoningEffort) => void }) {
+    const current = models.find((item) => item.model === model) || models[0];
+    return (
+        <Dropdown
+            trigger={["click"]}
+            placement="topLeft"
+            menu={{
+                items: [
+                    {
+                        key: "model",
+                        label: "模型",
+                        children: models.map((item) => ({
+                            key: item.model,
+                            label: <PickerOption title={item.displayName || item.model} selected={item.model === model} />,
+                            onClick: () => onModelChange(item.model),
+                        })),
+                    },
+                    {
+                        key: "effort",
+                        label: "推理强度",
+                        children: current.supportedReasoningEfforts.map((item) => ({
+                            key: item.reasoningEffort,
+                            label: <PickerOption title={effortLabels[item.reasoningEffort]} selected={item.reasoningEffort === reasoningEffort} />,
+                            onClick: () => onReasoningEffortChange(item.reasoningEffort),
+                        })),
+                    },
+                ],
+            }}
+        >
+            <button type="button" className="flex h-9 min-w-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="选择 Codex 模型和推理强度">
+                <Sparkles className="size-3.5 shrink-0" />
+                <span className="max-w-28 truncate">{current.displayName || current.model}</span>
+                <span className="shrink-0 opacity-55">{effortLabels[reasoningEffort]}</span>
+                <ChevronUp className="size-3 shrink-0 opacity-50" />
+            </button>
+        </Dropdown>
+    );
+}
+
+const effortLabels: Record<AgentReasoningEffort, string> = {
+    minimal: "最低",
+    low: "轻度",
+    medium: "中",
+    high: "高",
+    xhigh: "极高",
+};
+
+function PickerOption({ title, selected }: { title: string; selected: boolean }) {
+    return (
+        <div className="flex min-w-48 items-center gap-3 py-0.5">
+            <span className="min-w-0 flex-1 text-sm font-medium">{title}</span>
+            {selected ? <Check className="size-4 shrink-0" /> : null}
         </div>
     );
 }

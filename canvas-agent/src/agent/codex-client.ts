@@ -7,7 +7,7 @@ import stripAnsi from "strip-ansi";
 import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
-import type { CodexNotificationParams, CodexPlanUpdate, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
+import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
 import type { AgentEmit, AgentPermissionMode } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
@@ -92,6 +92,11 @@ export class CodexAppClient {
         return this.request("thread/archive", { threadId });
     }
 
+    /** 查询当前账号可用的 Codex 模型。 */
+    listModels() {
+        return this.request("model/list", { limit: 100, includeHidden: false });
+    }
+
     /** 返回指定线程在当前进程中收到的最新任务计划。 */
     planUpdates(threadId: string) {
         return [...this.plansByTurn.values()].filter((item) => item.threadId === threadId);
@@ -105,9 +110,9 @@ export class CodexAppClient {
     }
 
     /** 启动一个 Codex turn 并等待完成通知。 */
-    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, onTurn?: (turnId: string) => void) {
+    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, model?: string, effort?: CodexReasoningEffort, onTurn?: (turnId: string) => void) {
         this.currentThreadId = threadId;
-        const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), ...turnSettings(permissionMode) });
+        const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), ...turnSettings(permissionMode), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
         const turnId = turn.id;
         if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
         this.currentTurnId = turnId;
