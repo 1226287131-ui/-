@@ -47,7 +47,7 @@ class NonVideoResponseError extends Error {
 }
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; remoteOnly?: boolean };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-v1" | "video-v2" | "grok" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-v1" | "video-v2" | "video-v2-full" | "grok" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
@@ -66,7 +66,7 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "seedance" || task.provider === "video-v1" || task.provider === "video-v2" || task.provider === "grok" ? 5000 : 2500;
+    const delayMs = task.provider === "seedance" || task.provider === "video-v1" || task.provider === "video-v2" || task.provider === "video-v2-full" || task.provider === "grok" ? 5000 : 2500;
     for (;;) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -84,6 +84,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     assertVideoConfig(requestConfig, requestConfig.model);
     const profile = getVideoModelProfile(modelOptionName(selectedModel));
     if (profile.kind === "video-v1") return createVideoV1Task(requestConfig, selectedModel, prompt, references, options);
+    if (profile.kind === "video-v2-full") return createVideoV2FullTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "video-v2") return createVideoV2Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, prompt, references, options);
     if (isSeedanceVideoConfig(requestConfig)) {
@@ -105,6 +106,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     if (task.provider === "seedance") return pollSeedanceTask(requestConfig, task, options);
     if (task.provider === "video-v1") return pollVideoV1Task(requestConfig, task, options);
     if (task.provider === "video-v2") return pollVideoV2Task(requestConfig, task, options);
+    if (task.provider === "video-v2-full") return pollVideoV2FullTask(requestConfig, task, options);
     if (task.provider === "grok") return pollGrokTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
@@ -225,6 +227,36 @@ async function createVideoV2Task(config: AiConfig, model: string, prompt: string
     }
 }
 
+async function createVideoV2FullTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(model);
+    const profile = getVideoModelProfile(modelName);
+    if (!prompt.trim()) throw new Error("video-v2-满血兜底版需要填写提示词");
+    if (Array.from(prompt).length > 4000) throw new Error("video-v2-满血兜底版提示词不能超过 4000 个字符");
+    const media = await resolveReferenceMediaUrls(
+        references.slice(0, profile.maxImages),
+        videoReferences.slice(0, profile.maxVideos),
+        audioReferences.slice(0, profile.maxAudios),
+    );
+    const payload = {
+        model: modelName,
+        prompt: normalizeVideoV2Prompt(prompt, { images: media.images.length, videos: media.videos.length, audios: media.audios.length }),
+        images: media.images,
+        videos: media.videos,
+        audios: media.audios,
+        aspect_ratio: normalizeVideoRatioForModel(modelName, config.size),
+        duration: Number(normalizeVideoSecondsForModel(modelName, config.videoSeconds)),
+    };
+    try {
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const id = taskIdOf(created);
+        if (!id) throw new Error("video-v2-满血兜底版接口没有返回任务 ID");
+        return { id, provider: "video-v2-full", model };
+    } catch (error) {
+        throwIfRequestAborted(error, options?.signal);
+        throw new Error(readAxiosError(error, "video-v2-满血兜底版任务创建失败"));
+    }
+}
+
 async function createGrokTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const body = new FormData();
     body.append("model", modelOptionName(model));
@@ -285,6 +317,10 @@ async function pollVideoV1Task(config: AiConfig, task: VideoGenerationTask, opti
 
 async function pollVideoV2Task(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     return pollOpenCompatibleTask(config, task, options, "video-v2");
+}
+
+async function pollVideoV2FullTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    return pollOpenCompatibleTask(config, task, options, "video-v2-满血兜底版");
 }
 
 async function pollGrokTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {

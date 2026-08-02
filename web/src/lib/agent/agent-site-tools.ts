@@ -190,7 +190,7 @@ function getVideoConfig() {
     const sizeOptions = remoteProfile
         ? profile.ratios.map((value) => ({ value: profile.kind === "grok" ? (value === "9:16" ? "720x1280" : "1280x720") : value, label: value === "21:9" ? "超宽" : value === "16:9" ? "横屏" : value === "9:16" ? "竖屏" : value === "1:1" ? "方形" : value === "4:3" ? "标准" : "长幅" }))
         : videoSizeOptions;
-    const resolutionOptions = profile.kind === "video-v1" ? [{ value: "720p", label: "720p" }] : profile.kind === "video-v2" ? profile.qualityOptions.map((value) => ({ value, label: value })) : profile.kind === "grok" ? [{ value: "high", label: "high" }] : videoResolutionOptions;
+    const resolutionOptions = profile.kind === "video-v1" || profile.kind === "video-v2-full" ? [{ value: "720p", label: "720p" }] : profile.kind === "video-v2" ? profile.qualityOptions.map((value) => ({ value, label: value })) : profile.kind === "grok" ? [{ value: "high", label: "high" }] : videoResolutionOptions;
     return {
         current: {
             model,

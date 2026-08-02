@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- `video-v2-满血兜底版`：模型设置应只显示 `16:9`/`9:16`、固定 `15s` 和固定 `720p`；提交请求应只包含 `model`、`prompt`、`images`、`videos`、`audios`、`aspect_ratio`、`duration`，不应包含 `resolution` 或 `generate_audio`。
 - 视频创作台模型参数：切换 `video-v1`、`grok-imagine-1.5-video`、`video-v2`、`video-v2-fast` 后，秒数应分别只显示 `5/10/15`、`6/10/12/16/20`、`5/10/15`、`5/10/15`；v1 质量应为 `hd/sd`，Grok 应固定 `quality=high` 和横竖尺寸，v2/v2-fast 应固定 `resolution=720p`。
 - 无限画布视频节点：节点模型下拉切换后，右侧参数浮层和底部摘要必须跟随当前节点模型，不应继续显示 Grok 的 `quality=high` 或 `12s`；生成任务的 `seconds/size/vquality` 也应按节点模型重新归一化。
 - 四种视频请求：在渠道中填写自己的 Base URL/API Key 后，文生视频应能创建任务并轮询；v1 单图使用 `image`、多图使用 `images`，v2/v2-fast 请求始终带 `images/videos/audios` 数组，Grok 参考图使用重复的 `input_reference` 字段。

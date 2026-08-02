@@ -45,7 +45,7 @@ export function VideoSettingsPanel({ config, model: selectedModel, onConfigChang
 
     const model = modelOptionName(videoModel);
     const profile = getVideoModelProfile(model);
-    if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "grok") {
+    if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "video-v2-full" || profile.kind === "grok") {
         return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 
@@ -120,6 +120,7 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
     const ratio = normalizeVideoRatioForModel(model, config.size);
     const quality = normalizeVideoQualityForModel(model, config.vquality);
     const isGrok = profile.kind === "grok";
+    const isVideoV2Full = profile.kind === "video-v2-full";
     const size = normalizeVideoSizeForModel(model, config.size);
     const ratioLabels: Record<string, string> = { "21:9": "超宽", "16:9": "横屏", "9:16": "竖屏", "1:1": "方形", "4:3": "标准", "3:4": "长幅" };
 
@@ -128,7 +129,7 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title={isGrok ? "输出规格" : "画幅"} color={theme.node.muted}>
-                    <div className={`grid gap-2.5 ${isGrok ? "grid-cols-2" : "grid-cols-3"}`}>
+                    <div className={`grid gap-2.5 ${isGrok || isVideoV2Full ? "grid-cols-2" : "grid-cols-3"}`}>
                         {profile.ratios.map((item) => {
                             const selected = isGrok ? size === (item === "9:16" ? "720x1280" : "1280x720") : ratio === item;
                             return (
@@ -144,15 +145,15 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                         })}
                     </div>
                     <div className="text-[11px] leading-4 opacity-55">
-                        {isGrok ? "Grok 固定 720p，quality=high" : profile.kind === "video-v2" ? "v2 与 v2-fast 使用 aspect_ratio" : "video-v1 使用 aspect_ratio"}
+                        {isGrok ? "Grok 固定 720p，quality=high" : isVideoV2Full ? "video-v2-满血兜底版固定 720p、15 秒" : profile.kind === "video-v2" ? "v2 与 v2-fast 使用 aspect_ratio" : "video-v1 使用 aspect_ratio"}
                     </div>
                 </SettingGroup>
-                {profile.kind === "video-v1" ? (
+                {profile.kind === "video-v1" || isVideoV2Full ? (
                     <SettingGroup title="分辨率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-2.5">
                             <OptionPill selected theme={theme} disabled onClick={() => undefined}>720p</OptionPill>
                         </div>
-                        <div className="text-[11px] leading-4 opacity-55">video-v1 固定输出 720p</div>
+                        <div className="text-[11px] leading-4 opacity-55">{isVideoV2Full ? "video-v2-满血兜底版固定输出 720p" : "video-v1 固定输出 720p"}</div>
                     </SettingGroup>
                 ) : null}
                 {profile.kind === "video-v2" ? (
@@ -163,7 +164,7 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title="秒数" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">{profile.seconds.map((value) => <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>{value}s</OptionPill>)}</div>
+                    <div className={`grid gap-2.5 ${profile.seconds.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>{profile.seconds.map((value) => <OptionPill key={value} selected={seconds === String(value)} disabled={isVideoV2Full} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>{value}s</OptionPill>)}</div>
                 </SettingGroup>
             </div>
         </ImageSettingsTheme>

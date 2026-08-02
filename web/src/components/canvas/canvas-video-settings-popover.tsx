@@ -21,9 +21,10 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const model = modelOptionName(config.model || config.videoModel);
     const profile = getVideoModelProfile(model);
-    const seconds = profile.kind === "generic" ? config.videoSeconds : normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const isVideoV2Full = profile.kind === "video-v2-full";
+    const seconds = isVideoV2Full ? "15" : profile.kind === "generic" ? config.videoSeconds : normalizeVideoSecondsForModel(model, config.videoSeconds);
     const size = profile.kind === "generic" ? config.size : normalizeVideoSizeForModel(model, config.size);
-    const quality = profile.kind === "generic" ? config.vquality : normalizeVideoQualityForModel(model, config.vquality);
+    const quality = isVideoV2Full ? "720p" : profile.kind === "generic" ? config.vquality : normalizeVideoQualityForModel(model, config.vquality);
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);

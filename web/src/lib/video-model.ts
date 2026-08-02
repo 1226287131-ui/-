@@ -1,4 +1,4 @@
-export type VideoModelKind = "video-v1" | "video-v2" | "grok" | "generic";
+export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-full" | "grok" | "generic";
 
 export type VideoModelProfile = {
     kind: VideoModelKind;
@@ -42,6 +42,20 @@ const VIDEO_V2_PROFILE: VideoModelProfile = {
     qualityOptions: ["480p", "720p", "1080p"],
 };
 
+const VIDEO_V2_FULL_PROFILE: VideoModelProfile = {
+    kind: "video-v2-full",
+    seconds: [15],
+    ratios: ["16:9", "9:16"],
+    maxImages: 9,
+    maxVideos: 3,
+    maxAudios: 3,
+    imageMaxBytes: 12 * 1024 * 1024,
+    videoMaxBytes: 48 * 1024 * 1024,
+    audioMaxBytes: 16 * 1024 * 1024,
+    resolution: "fixed",
+    qualityOptions: ["720p"],
+};
+
 const GROK_PROFILE: VideoModelProfile = {
     kind: "grok",
     seconds: [6, 10, 12, 16, 20],
@@ -71,8 +85,9 @@ const GENERIC_PROFILE: VideoModelProfile = {
 };
 
 export function getVideoModelProfile(model: string): VideoModelProfile {
-    const value = model.toLowerCase();
+    const value = model.trim().toLowerCase();
     if (value.includes("video-v1")) return VIDEO_V1_PROFILE;
+    if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (value.includes("grok-imagine-1.5-video")) return GROK_PROFILE;
     return GENERIC_PROFILE;
@@ -109,6 +124,7 @@ export function normalizeVideoSizeForModel(model: string, value: string) {
 export function normalizeVideoQualityForModel(model: string, value: string) {
     const profile = getVideoModelProfile(model);
     if (profile.kind === "video-v1") return "720p";
+    if (profile.kind === "video-v2-full") return "720p";
     if (profile.kind === "grok") return "high";
     if (profile.kind === "video-v2") {
         const normalized = String(value || "").trim().toLowerCase().replace(/p$/, "");
@@ -136,5 +152,5 @@ export function videoModelSupports(model: string, kind: "image" | "video" | "aud
 
 export function videoModelUsesPublicMediaUrls(model: string) {
     const kind = getVideoModelProfile(model).kind;
-    return kind === "video-v1" || kind === "video-v2";
+    return kind === "video-v1" || kind === "video-v2" || kind === "video-v2-full";
 }
