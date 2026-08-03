@@ -22,6 +22,7 @@ export type AgentPendingApproval = { requestId: string; method: string; threadId
 export type AgentCanvasContext = { snapshot: CanvasAgentSnapshot; applyOps: (ops?: CanvasAgentOp[]) => CanvasAgentSnapshot; undoOps: () => CanvasAgentSnapshot | null; canUndo: boolean };
 export type AgentThreadSummary = { id: string; preview: string; name?: string | null; cwd?: string; status?: string; source?: unknown; createdAt?: number; updatedAt?: number };
 export type AgentTokenUsage = { input: number; cached: number; output: number };
+export type AgentBootstrapStatus = { key: string; text: string; detail: string; status: "running" | "ready" | "error" };
 export type AgentPanelTab = "chat" | "setup" | "history" | "log";
 
 const CONNECT_TIMEOUT_MS = 6000;
@@ -58,6 +59,8 @@ type AgentStore = {
     model: string;
     reasoningEffort: AgentReasoningEffort | "";
     activity: string;
+    bootstrapStatus: AgentBootstrapStatus | null;
+    mcpStartupStatuses: Record<string, AgentBootstrapStatus>;
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
     pendingApprovals: AgentPendingApproval[];
@@ -105,6 +108,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     model: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-model") || "",
     reasoningEffort: typeof window === "undefined" ? "" : (localStorage.getItem("canvas-agent-reasoning-effort") as AgentReasoningEffort) || "",
     activity: "就绪",
+    bootstrapStatus: null,
+    mcpStartupStatuses: {},
     connectError: "",
     pendingTool: null,
     pendingApprovals: [],
@@ -140,7 +145,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         agentSource = null;
         if (connectTimer) clearTimeout(connectTimer);
         connectTimer = null;
-        set({ enabled: false, connected: false, silentConnect: false, activity: "离线", ...patch });
+        set({ enabled: false, connected: false, silentConnect: false, activity: "离线", bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
     },
     addMessage: (item) => set((state) => ({ messages: [...state.messages, item] })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),
