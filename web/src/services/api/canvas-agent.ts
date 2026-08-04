@@ -1,4 +1,5 @@
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import type { AgentReasoningEffort } from "@/stores/use-agent-store";
 
 type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: string; token?: string; hasToken?: boolean };
 
@@ -25,17 +26,23 @@ export type AgentSkillDetail = {
     revision: string;
 };
 export type AgentSkillInput = { name?: string; description: string; instructions: string; interface?: AgentSkillInterface | null; expectedRevision?: string };
+export type AgentSkillDraft = { name: string; displayName: string; description: string; instructions: string; shortDescription: string; defaultPrompt: string };
+export type AgentSkillDraftInput = { source: "conversation" | "canvas"; threadId: string; clientId: string; model?: string; effort?: AgentReasoningEffort };
 export type AgentSkillsResponse = { ok?: boolean; data?: AgentSkillSummary[]; errors?: unknown[] };
 export type AgentSkillResponse = { ok?: boolean; data?: AgentSkillDetail };
+export type AgentSkillDraftResponse = { ok?: boolean; data?: AgentSkillDraft };
 
 export async function postState(endpoint: string, token: string, clientId: string, snapshot: CanvasAgentSnapshot | null) {
     try {
-        await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
+        const response = await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(snapshot ? { ...snapshot, hasCanvas: true } : { hasCanvas: false }),
         });
-    } catch {}
+        return response.ok;
+    } catch {
+        return false;
+    }
 }
 
 export async function activateAgentClient(endpoint: string, token: string, clientId: string) {
@@ -50,6 +57,10 @@ export async function postToolResult(endpoint: string, token: string, clientId: 
 
 export async function postCodexApproval(endpoint: string, token: string, requestId: string, decision: "accept" | "acceptForSession" | "decline") {
     await fetchAgentJson(endpoint, token, "/agent/codex/approval", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, decision }) });
+}
+
+export async function interruptCodexTurn(endpoint: string, token: string, threadId?: string) {
+    await fetchAgentJson(endpoint, token, "/agent/codex/interrupt", jsonPost({ threadId }));
 }
 
 export async function acknowledgeCodexHistory(endpoint: string, token: string, threadId: string, turnIds: string[]) {
@@ -70,6 +81,10 @@ export function fetchCodexSkill(endpoint: string, token: string, name: string) {
 
 export function createCodexSkill(endpoint: string, token: string, input: AgentSkillInput) {
     return fetchAgentJson<AgentSkillResponse>(endpoint, token, "/agent/codex/skills", jsonPost(input));
+}
+
+export function createCodexSkillDraft(endpoint: string, token: string, input: AgentSkillDraftInput) {
+    return fetchAgentJson<AgentSkillDraftResponse>(endpoint, token, "/agent/codex/skills/draft", jsonPost(input));
 }
 
 export function updateCodexSkill(endpoint: string, token: string, name: string, input: AgentSkillInput) {

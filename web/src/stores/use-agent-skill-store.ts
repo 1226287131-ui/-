@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { fetchCodexSkills, type AgentSkillSummary } from "@/services/api/canvas-agent";
+import { fetchCodexSkills, type AgentSkillDraft, type AgentSkillSummary } from "@/services/api/canvas-agent";
 import { useAgentStore } from "@/stores/use-agent-store";
 
 let loadSequence = 0;
@@ -11,12 +11,16 @@ type AgentSkillStore = {
     selectionRevision: number;
     connectionRevision: number;
     autoPrompt: string;
+    draft: AgentSkillDraft | null;
+    generatingSource: "conversation" | "canvas" | null;
     loading: boolean;
     loaded: boolean;
     errors: string[];
     loadSkills: (endpoint: string, token: string, forceReload?: boolean) => Promise<void>;
     selectSkill: (skill: AgentSkillSummary | null) => void;
     clearSelection: (expectedRevision?: number) => void;
+    setDraft: (draft: AgentSkillDraft | null) => void;
+    setGeneratingSource: (source: "conversation" | "canvas" | null) => void;
     reset: () => void;
 };
 
@@ -26,6 +30,8 @@ export const useAgentSkillStore = create<AgentSkillStore>((set, get) => ({
     selectionRevision: 0,
     connectionRevision: 0,
     autoPrompt: "",
+    draft: null,
+    generatingSource: null,
     loading: false,
     loaded: false,
     errors: [],
@@ -60,11 +66,13 @@ export const useAgentSkillStore = create<AgentSkillStore>((set, get) => ({
         replaceAutoPrompt(current.autoPrompt, "", false);
         set({ selectedSkill: null, autoPrompt: "", selectionRevision: current.selectionRevision + 1 });
     },
+    setDraft: (draft) => set({ draft }),
+    setGeneratingSource: (generatingSource) => set({ generatingSource }),
     reset: () => {
         loadSequence += 1;
         const current = get();
         replaceAutoPrompt(current.autoPrompt, "", false);
-        set({ skills: [], selectedSkill: null, selectionRevision: current.selectionRevision + 1, connectionRevision: current.connectionRevision + 1, autoPrompt: "", loading: false, loaded: false, errors: [] });
+        set({ skills: [], selectedSkill: null, selectionRevision: current.selectionRevision + 1, connectionRevision: current.connectionRevision + 1, autoPrompt: "", draft: null, generatingSource: null, loading: false, loaded: false, errors: [] });
     },
 }));
 
