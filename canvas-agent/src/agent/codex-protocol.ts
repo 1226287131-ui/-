@@ -17,9 +17,35 @@ export type CodexModel = JsonRecord & {
     isDefault?: boolean;
 };
 
+export type CodexSkillScope = "user" | "repo" | "system" | "admin";
+export type CodexSkillInterface = JsonRecord & {
+    displayName?: string | null;
+    shortDescription?: string | null;
+    iconSmall?: string | null;
+    iconLarge?: string | null;
+    iconSmallUrl?: string | null;
+    iconLargeUrl?: string | null;
+    brandColor?: string | null;
+    defaultPrompt?: string | null;
+};
+export type CodexSkillMetadata = JsonRecord & {
+    name: string;
+    description: string;
+    shortDescription?: string | null;
+    interface?: CodexSkillInterface | null;
+    dependencies?: JsonRecord | null;
+    path: string;
+    scope: CodexSkillScope;
+    enabled: boolean;
+};
+export type CodexSkillError = { path: string; message: string };
+export type CodexSkillsListEntry = { cwd: string; skills: CodexSkillMetadata[]; errors: CodexSkillError[] };
+export type CodexSkillSelector = { name: string; path: string };
+
 export type CodexTurnInput =
     | { type: "text"; text: string; text_elements: [] }
-    | { type: "localImage"; path: string };
+    | { type: "localImage"; path: string }
+    | ({ type: "skill" } & CodexSkillSelector);
 
 type ThreadOptions = {
     approvalPolicy: "never" | "on-request";
@@ -67,6 +93,14 @@ type CodexRequestSpec = {
         params: { limit: number; includeHidden: boolean };
         result: { data: CodexModel[]; nextCursor: string | null };
     };
+    "skills/list": {
+        params: { cwds: string[]; forceReload?: boolean };
+        result: { data: CodexSkillsListEntry[] };
+    };
+    "skills/config/write": {
+        params: { path?: string | null; name?: string | null; enabled: boolean };
+        result: { effectiveEnabled: boolean };
+    };
     "turn/start": {
         params: { threadId: string; input: CodexTurnInput[]; approvalPolicy: "never" | "on-request"; sandboxPolicy: { type: "workspaceWrite"; networkAccess: boolean } | { type: "dangerFullAccess" }; model?: string; effort?: CodexReasoningEffort };
         result: { turn: CodexTurn };
@@ -101,6 +135,7 @@ type CodexNotificationSpec = {
     "item/commandExecution/outputDelta": { threadId: string; turnId: string; itemId: string; delta: string };
     "thread/tokenUsage/updated": { threadId: string; turnId: string; tokenUsage: { last: TokenUsageBreakdown } };
     "mcpServer/startupStatus/updated": CodexMcpStartupStatus;
+    "skills/changed": Record<string, never>;
     error: { threadId: string; turnId: string; error: CodexTurnError; willRetry: boolean };
 };
 

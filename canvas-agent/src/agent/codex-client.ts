@@ -8,16 +8,16 @@ import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
 import { codexEventHistory, type CodexEventHistory } from "./codex-event-history.js";
-import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexTurnInput } from "./codex-protocol.js";
+import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexSkillSelector, CodexTurnInput } from "./codex-protocol.js";
 import type { AgentEmit, AgentPermissionMode } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
-type ActiveTurn = PendingRequest & { threadId: string; turnId: string; prompt: string };
+type ActiveTurn = PendingRequest & { threadId: string; turnId: string; prompt: string; messageText?: string };
 type ItemDeltaParams = { threadId: string; turnId: string; itemId: string; delta: string; summaryIndex?: number };
 type PendingDelta = { delta: string; itemType: string; params: ItemDeltaParams; timer: ReturnType<typeof setTimeout> };
 type ApprovalRequest = { id: number; method: string; params: JsonRecord; decision?: string };
-type PendingTurnStart = { threadId: string; prompt: string; turnId?: string; onTurn?: (turnId: string) => void };
+type PendingTurnStart = { threadId: string; prompt: string; messageText?: string; turnId?: string; onTurn?: (turnId: string) => void };
 
 const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
@@ -50,6 +50,7 @@ export class CodexAppClient {
     private plansByTurn = new Map<string, CodexPlanUpdate>();
     private approvalRequests = new Map<string, ApprovalRequest>();
     private finalizingTurns = new Map<string, Promise<void>>();
+    private skillReloads = new Map<string, Promise<CodexRequestResult<"skills/list">>>();
     private failing = false;
 
     /** 保存 app-server 子进程和事件出口。 */
@@ -123,6 +124,26 @@ export class CodexAppClient {
         return this.request("model/list", { limit: 100, includeHidden: false });
     }
 
+    /** 查询指定工作空间可发现的 Codex Skills。 */
+    listSkills(cwd: string, forceReload = false) {
+        if (!forceReload) return this.request("skills/list", { cwds: [cwd] });
+        const key = process.platform === "win32" ? path.resolve(cwd).toLowerCase() : path.resolve(cwd);
+        const current = this.skillReloads.get(key);
+        if (current) return current;
+        const reload = this.request("skills/list", { cwds: [cwd], forceReload: true });
+        this.skillReloads.set(key, reload);
+        const clear = () => {
+            if (this.skillReloads.get(key) === reload) this.skillReloads.delete(key);
+        };
+        void reload.then(clear, clear);
+        return reload;
+    }
+
+    /** 修改一个已发现 Skill 的启用状态。 */
+    setSkillEnabled(path: string, enabled: boolean) {
+        return this.request("skills/config/write", { path, enabled });
+    }
+
     /** 返回指定线程在当前进程中收到的最新任务计划。 */
     planUpdates(threadId: string) {
         return [...this.plansByTurn.values()].filter((item) => item.threadId === threadId);
@@ -136,14 +157,14 @@ export class CodexAppClient {
     }
 
     /** 启动一个 Codex turn 并等待完成通知。 */
-    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, model?: string, effort?: CodexReasoningEffort, onTurn?: (turnId: string) => void) {
+    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, model?: string, effort?: CodexReasoningEffort, onTurn?: (turnId: string) => void, skill?: CodexSkillSelector, messageText?: string) {
         this.currentThreadId = threadId;
         this.currentTurnId = "";
         this.lastUsage = null;
-        const pendingStart: PendingTurnStart = { threadId, prompt, onTurn };
+        const pendingStart: PendingTurnStart = { threadId, prompt, messageText, onTurn };
         this.pendingTurnStart = pendingStart;
         try {
-            const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images), ...turnSettings(permissionMode), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
+            const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images, skill), ...turnSettings(permissionMode), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
             const turnId = turn.id;
             if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
             pendingStart.turnId = turnId;
@@ -158,7 +179,7 @@ export class CodexAppClient {
                 if (completed) throw completed;
                 return;
             }
-            await new Promise((resolve, reject) => this.activeTurns.set(turnKey, { resolve, reject, threadId, turnId, prompt }));
+            await new Promise((resolve, reject) => this.activeTurns.set(turnKey, { resolve, reject, threadId, turnId, prompt, messageText }));
         } catch (error) {
             if (!this.currentTurnId) this.currentThreadId = "";
             throw error;
@@ -249,6 +270,10 @@ export class CodexAppClient {
 
     /** 转换并广播 app-server 通知。 */
     private handleNotification(method: string, params: JsonRecord) {
+        if (method === "skills/changed") {
+            this.emit("skills_changed", {});
+            return;
+        }
         if (method === "serverRequest/resolved") {
             const requestId = String(field(params, "requestId") || "");
             const request = requestId ? this.approvalRequests.get(requestId) : undefined;
@@ -347,8 +372,12 @@ export class CodexAppClient {
             const plan = this.plansByTurn.get(planKey);
             if (plan) this.plansByTurn.set(planKey, { ...plan, turnStatus: String(field(turn, "status") || "completed") });
             if (threadId && turnId) {
-                const input = this.pendingTurnStart?.threadId === threadId ? this.pendingTurnStart.prompt : "";
-                const turnRecord = { ...(turn && typeof turn === "object" && !Array.isArray(turn) ? turn as JsonRecord : { id: turnId, status: field(turn, "status") || "completed" }), ...(input ? { input } : {}) };
+                const pendingStart = this.pendingTurnStart?.threadId === threadId && (!this.pendingTurnStart.turnId || this.pendingTurnStart.turnId === turnId) ? this.pendingTurnStart : undefined;
+                const turnRecord = {
+                    ...(turn && typeof turn === "object" && !Array.isArray(turn) ? turn as JsonRecord : { id: turnId, status: field(turn, "status") || "completed" }),
+                    ...(pendingStart?.prompt ? { input: pendingStart.prompt } : {}),
+                    ...(pendingStart?.messageText ? { messageText: pendingStart.messageText } : {}),
+                };
                 turnPersistence = this.eventHistory.recordTurn({ threadId, turnId, turn: turnRecord }).catch((error) => logger.warn("Failed to persist Codex turn history", { threadId, turnId, error }));
                 this.finalizingTurns.set(planKey, turnPersistence);
             }
@@ -491,18 +520,18 @@ export class CodexAppClient {
         if (this.failing) return;
         this.failing = true;
         this.approvalRequests.forEach((request, requestId) => this.emit("codex_approval_resolved", { ...request.params, requestId, decision: request.decision || "cancel" }));
-        const failedTurns = new Map<string, { threadId: string; turnId: string; prompt: string }>();
-        this.activeTurns.forEach(({ threadId, turnId, prompt }, key) => {
-            if (!this.finalizingTurns.has(key)) failedTurns.set(key, { threadId, turnId, prompt });
+        const failedTurns = new Map<string, { threadId: string; turnId: string; prompt: string; messageText?: string }>();
+        this.activeTurns.forEach(({ threadId, turnId, prompt, messageText }, key) => {
+            if (!this.finalizingTurns.has(key)) failedTurns.set(key, { threadId, turnId, prompt, messageText });
         });
         const pendingStart = this.pendingTurnStart;
         if (pendingStart?.turnId) {
             const key = turnCacheKey(pendingStart.threadId, pendingStart.turnId);
-            if (!this.finalizingTurns.has(key) && !failedTurns.has(key)) failedTurns.set(key, { threadId: pendingStart.threadId, turnId: pendingStart.turnId, prompt: pendingStart.prompt });
+            if (!this.finalizingTurns.has(key) && !failedTurns.has(key)) failedTurns.set(key, { threadId: pendingStart.threadId, turnId: pendingStart.turnId, prompt: pendingStart.prompt, messageText: pendingStart.messageText });
         }
         const finalizing = [...this.finalizingTurns.values()];
-        const persistence = [...failedTurns.values()].map(({ threadId, turnId, prompt }) => {
-            const turn = { id: turnId, status: "failed", error: { message }, ...(prompt ? { input: prompt } : {}) };
+        const persistence = [...failedTurns.values()].map(({ threadId, turnId, prompt, messageText }) => {
+            const turn = { id: turnId, status: "failed", error: { message }, ...(prompt ? { input: prompt } : {}), ...(messageText ? { messageText } : {}) };
             return this.eventHistory.recordTurn({ threadId, turnId, turn }).catch((historyError) => logger.warn("Failed to persist Codex turn failure", { threadId, turnId, error: historyError }));
         });
         const error = reported || failedTurns.size || finalizing.length ? new CodexReportedError(message) : new Error(message);
@@ -522,8 +551,8 @@ export class CodexAppClient {
         this.currentThreadId = "";
         this.currentTurnId = "";
         void Promise.all([...finalizing, ...persistence]).then(() => {
-            failedTurns.forEach(({ threadId, turnId, prompt }) => {
-                const turn = { id: turnId, status: "failed", error: { message }, ...(prompt ? { input: prompt } : {}) };
+            failedTurns.forEach(({ threadId, turnId, prompt, messageText }) => {
+                const turn = { id: turnId, status: "failed", error: { message }, ...(prompt ? { input: prompt } : {}), ...(messageText ? { messageText } : {}) };
                 this.emit("agent_event", { agent: "codex", type: "turn.completed", status: "failed", error: { message }, thread_id: threadId, turn_id: turnId, turn });
                 this.emit("agent_done", { agent: "codex", status: "failed", error: { message }, thread_id: threadId, turn_id: turnId });
             });
@@ -584,9 +613,18 @@ function turnSettings(permissionMode: AgentPermissionMode) {
     };
 }
 
-/** 将文本和本地图片转换为 Codex turn 输入。 */
-function codexInput(prompt: string, images: string[]): CodexTurnInput[] {
-    return [{ type: "text", text: prompt, text_elements: [] }, ...images.map<CodexTurnInput>((file) => ({ type: "localImage", path: file }))];
+/** 将文本、本地图片和显式 Skill 转换为 Codex turn 输入。 */
+function codexInput(prompt: string, images: string[], skill?: CodexSkillSelector): CodexTurnInput[] {
+    const text = skill && !mentionsSkill(prompt, skill.name) ? `$${skill.name} ${prompt}` : prompt;
+    return [
+        { type: "text", text, text_elements: [] },
+        ...images.map<CodexTurnInput>((file) => ({ type: "localImage", path: file })),
+        ...(skill ? [{ type: "skill", ...skill } as CodexTurnInput] : []),
+    ];
+}
+
+function mentionsSkill(prompt: string, name: string) {
+    return new RegExp(`\\$${name}(?![A-Za-z0-9_-]|:[A-Za-z0-9_-])`).test(prompt);
 }
 
 /** 将 app-server 通知转换为前端使用的 Agent 事件。 */

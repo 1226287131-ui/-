@@ -12,7 +12,7 @@ type PendingRequest = { clientId: string; resolve: (value: unknown) => void; rej
 type TurnAttachment = { clientId: string; id: string; name: string; type: string; size: number; width: number; height: number; dataUrl: string };
 type ReplayEvent = { type: string; payload: Record<string, unknown> };
 export type CodexState = { busy: boolean; threadId: string; turnId: string };
-export const AGENT_PROTOCOL_VERSION = 3;
+export const AGENT_PROTOCOL_VERSION = 4;
 
 const SITE_TOOLS = new Set<ToolName>([
     "site_navigate",

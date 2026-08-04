@@ -7,10 +7,17 @@ import { errorMessage, field } from "../utils/value.js";
 import { CodexAppClient, CodexReportedError } from "./codex-client.js";
 import { codexEventHistory } from "./codex-event-history.js";
 import { settledTurnIds, summarizeCodexThread, threadMessages } from "./codex-history.js";
-import type { CodexReasoningEffort } from "./codex-protocol.js";
+import type { CodexReasoningEffort, CodexSkillMetadata, CodexSkillSelector, CodexSkillsListEntry } from "./codex-protocol.js";
 import type { AgentAttachment, AgentEmit, AgentPermissionMode } from "./types.js";
 
-type CodexRunOptions = { threadId?: string; cwd?: string; permissionMode?: AgentPermissionMode; model?: string; effort?: CodexReasoningEffort; appEmit?: AgentEmit; onStart?: () => void; onThread?: (threadId: string) => void; onTurn?: (turnId: string) => void; onFinish?: () => void };
+type CodexRunOptions = { threadId?: string; cwd?: string; permissionMode?: AgentPermissionMode; model?: string; effort?: CodexReasoningEffort; skill?: CodexSkillSelector; messageText?: string; appEmit?: AgentEmit; onStart?: () => void; onThread?: (threadId: string) => void; onTurn?: (turnId: string) => void; onFinish?: () => void };
+
+export class CodexSkillLookupError extends Error {
+    override name = "CodexSkillLookupError";
+    constructor(message: string, readonly statusCode: 400 | 404 | 409) {
+        super(message);
+    }
+}
 
 let codexQueue: Promise<unknown> = Promise.resolve();
 let codexApp: CodexAppClient | null = null;
@@ -75,6 +82,31 @@ export async function listCodexModels(emit: AgentEmit) {
     return await (await getCodexApp(emit)).listModels();
 }
 
+/** 查询当前工作空间的原生 Skill 列表。 */
+export async function listCodexSkills(emit: AgentEmit, cwd: string, forceReload = false): Promise<CodexSkillsListEntry> {
+    const result = await (await getCodexApp(emit)).listSkills(cwd, forceReload);
+    return result.data.find((entry) => samePath(entry.cwd, cwd)) || { cwd, skills: [], errors: [] };
+}
+
+/** 从原生 Skill 列表中解析并校验浏览器提交的选择器。 */
+export async function resolveCodexSkill(emit: AgentEmit, cwd: string, selector: CodexSkillSelector, requireEnabled = false): Promise<CodexSkillMetadata> {
+    const name = String(selector?.name || "");
+    const requestedPath = String(selector?.path || "");
+    if (!name || !requestedPath || !path.isAbsolute(requestedPath)) throw new CodexSkillLookupError("Skill 选择无效", 400);
+    const { skills } = await listCodexSkills(emit, cwd, true);
+    const skill = skills.find((item) => item.name === name && samePath(item.path, requestedPath));
+    if (!skill) throw new CodexSkillLookupError("找不到指定 Skill，请刷新列表后重试", 404);
+    if (requireEnabled && !skill.enabled) throw new CodexSkillLookupError("该 Skill 已停用，请先启用后再使用", 409);
+    return skill;
+}
+
+/** 修改经过原生列表校验的 Skill 启用状态。 */
+export async function configureCodexSkill(emit: AgentEmit, cwd: string, selector: CodexSkillSelector, enabled: boolean) {
+    const skill = await resolveCodexSkill(emit, cwd, selector);
+    const result = await (await getCodexApp(emit)).setSkillEnabled(skill.path, enabled);
+    return { ...result, skill: { ...skill, enabled: result.effectiveEnabled } };
+}
+
 /** 读取指定 Codex 线程及其聊天历史。 */
 export async function readCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
     const app = await getCodexApp(emit);
@@ -113,14 +145,14 @@ async function runCodexTurnNow(prompt: string, lifecycleEmit: AgentEmit, attachm
         let threadId = await ensureCodexThread(app, options, lifecycleEmit);
         options.onThread?.(threadId);
         try {
-            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn, options.skill, options.messageText);
         } catch (error) {
             if (!isRecoverableThreadError(error)) throw error;
             lifecycleEmit("agent_log", { text: `Codex thread unavailable, starting a new thread: ${errorMessage(error)}` });
             loadedThreadId = "";
             threadId = await ensureCodexThread(app, { cwd: options.cwd }, lifecycleEmit);
             options.onThread?.(threadId);
-            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn, options.skill, options.messageText);
         }
     } catch (error) {
         logger.error("Codex turn failed", error);
@@ -210,7 +242,13 @@ function assertThreadWorkspace(thread: unknown, cwd?: string) {
 /** 判断线程工作目录是否与当前工作空间一致。 */
 function threadInWorkspace(thread: unknown, cwd: string) {
     const threadCwd = String(field(thread, "cwd") || "");
-    return Boolean(threadCwd && path.resolve(threadCwd) === path.resolve(cwd));
+    return Boolean(threadCwd && samePath(threadCwd, cwd));
+}
+
+/** 比较跨平台绝对路径；Windows 路径不区分大小写。 */
+function samePath(left: string, right: string) {
+    const normalize = (value: string) => process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value);
+    return normalize(left) === normalize(right);
 }
 
 /** 将图片附件写入临时文件供 Codex 读取。 */

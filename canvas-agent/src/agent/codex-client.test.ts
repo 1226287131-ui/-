@@ -57,6 +57,89 @@ test("中断请求只作用于当前运行线程", async () => {
     assert.equal(await interrupt, true);
 });
 
+test("Skill 列表与启用配置使用 app-server 原生协议", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const child = { stdin: { write: (line: string) => (writes.push(JSON.parse(line)), true) } };
+    const client = Reflect.construct(CodexAppClient, [child, () => undefined, emptyEventHistory]) as CodexAppClient;
+    const testClient = client as unknown as TestClient;
+
+    const listing = client.listSkills("D:\\site", true);
+    const listRequest = writes.at(-1);
+    assert.deepEqual(listRequest, { id: 1, method: "skills/list", params: { cwds: ["D:\\site"], forceReload: true } });
+    testClient.handle({ id: listRequest?.id, result: { data: [{ cwd: "D:\\site", skills: [], errors: [] }] } });
+    assert.equal((await listing).data[0]?.cwd, "D:\\site");
+
+    const configuring = client.setSkillEnabled("D:\\site\\.agents\\skills\\demo\\SKILL.md", false);
+    const configRequest = writes.at(-1);
+    assert.deepEqual(configRequest, { id: 2, method: "skills/config/write", params: { path: "D:\\site\\.agents\\skills\\demo\\SKILL.md", enabled: false } });
+    testClient.handle({ id: configRequest?.id, result: { effectiveEnabled: false } });
+    assert.equal((await configuring).effectiveEnabled, false);
+});
+
+test("并发强制刷新同一工作空间时只扫描一次 Skill", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const child = { stdin: { write: (line: string) => (writes.push(JSON.parse(line)), true) } };
+    const client = Reflect.construct(CodexAppClient, [child, () => undefined, emptyEventHistory]) as CodexAppClient;
+    const testClient = client as unknown as TestClient;
+
+    const first = client.listSkills("D:\\site", true);
+    const second = client.listSkills("D:\\site", true);
+    assert.equal(writes.length, 1);
+    testClient.handle({ id: writes[0].id, result: { data: [{ cwd: "D:\\site", skills: [], errors: [] }] } });
+    assert.deepEqual(await Promise.all([first, second]), [
+        { data: [{ cwd: "D:\\site", skills: [], errors: [] }] },
+        { data: [{ cwd: "D:\\site", skills: [], errors: [] }] },
+    ]);
+
+    const next = client.listSkills("D:\\site", true);
+    assert.equal(writes.length, 2);
+    testClient.handle({ id: writes[1].id, result: { data: [] } });
+    await next;
+});
+
+test("显式 Skill 同时使用文本标记和结构化输入传给 turn/start", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const child = { stdin: { write: (line: string) => (writes.push(JSON.parse(line)), true) } };
+    const client = Reflect.construct(CodexAppClient, [child, () => undefined, emptyEventHistory]) as CodexAppClient;
+    const testClient = client as unknown as TestClient;
+    const skill = { name: "demo-skill", path: "D:\\site\\.agents\\skills\\demo-skill\\SKILL.md" };
+
+    const running = client.startTurn("thread-1", "执行任务", [], "request", undefined, undefined, undefined, skill);
+    const request = writes.find((item) => item.method === "turn/start");
+    assert.deepEqual((request?.params as { input?: unknown[] })?.input, [
+        { type: "text", text: "$demo-skill 执行任务", text_elements: [] },
+        { type: "skill", ...skill },
+    ]);
+    testClient.handle({ id: request?.id, result: { turn: { id: "turn-1" } } });
+    await new Promise((resolve) => setImmediate(resolve));
+    testClient.handleNotification("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
+    await running;
+});
+
+test("显式 Skill 不重复已有的文本标记", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const child = { stdin: { write: (line: string) => (writes.push(JSON.parse(line)), true) } };
+    const client = Reflect.construct(CodexAppClient, [child, () => undefined, emptyEventHistory]) as CodexAppClient;
+    const testClient = client as unknown as TestClient;
+    const skill = { name: "demo-skill", path: "D:\\site\\.agents\\skills\\demo-skill\\SKILL.md" };
+
+    const running = client.startTurn("thread-1", "Use $demo-skill: 执行任务", [], "request", undefined, undefined, undefined, skill);
+    const request = writes.find((item) => item.method === "turn/start");
+    assert.equal(((request?.params as { input?: Array<{ text?: string }> })?.input || [])[0]?.text, "Use $demo-skill: 执行任务");
+    testClient.handle({ id: request?.id, result: { turn: { id: "turn-1" } } });
+    await new Promise((resolve) => setImmediate(resolve));
+    testClient.handleNotification("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
+    await running;
+});
+
+test("skills/changed 作为站点级事件单独广播", () => {
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const child = { stdin: { write: () => true } };
+    const client = Reflect.construct(CodexAppClient, [child, (type: string, payload: unknown) => events.push({ type, payload }), emptyEventHistory]) as CodexAppClient;
+    (client as unknown as TestClient).handleNotification("skills/changed", {});
+    assert.deepEqual(events, [{ type: "skills_changed", payload: {} }]);
+});
+
 test("turn/started 早于 turn/start 响应时保持完整事件归属", async () => {
     const writes: Array<Record<string, unknown>> = [];
     const events: Array<{ type: string; payload: unknown }> = [];
@@ -274,7 +357,7 @@ test("turn 完成通知会保存本轮输入与终态 turn", async () => {
     const client = Reflect.construct(CodexAppClient, [child, () => undefined, history]) as CodexAppClient;
     const testClient = client as unknown as TestClient;
 
-    const running = client.startTurn("thread-1", "执行 Get-Location", [], "request");
+    const running = client.startTurn("thread-1", "$command-runner 执行 Get-Location", [], "request", undefined, undefined, undefined, undefined, "执行 Get-Location");
     const request = writes.find((item) => item.method === "turn/start");
     assert.ok(request);
     testClient.handle({ id: request.id, result: { turn: { id: "turn-1" } } });
@@ -282,7 +365,7 @@ test("turn 完成通知会保存本轮输入与终态 turn", async () => {
     testClient.handleNotification("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed", durationMs: 120 } });
     await running;
 
-    assert.deepEqual(persistedTurns, [{ threadId: "thread-1", turnId: "turn-1", turn: { id: "turn-1", status: "completed", durationMs: 120, input: "执行 Get-Location" } }]);
+    assert.deepEqual(persistedTurns, [{ threadId: "thread-1", turnId: "turn-1", turn: { id: "turn-1", status: "completed", durationMs: 120, input: "$command-runner 执行 Get-Location", messageText: "执行 Get-Location" } }]);
 });
 
 test("turn 完成状态会等待补充历史落盘后再广播", async () => {
@@ -328,7 +411,7 @@ test("app-server 在 turn 完成通知前退出时保存失败终态", async () 
     const client = Reflect.construct(CodexAppClient, [child, (type: string, payload: unknown) => events.push({ type, payload }), history]) as CodexAppClient;
     const testClient = client as unknown as TestClient;
 
-    const running = client.startTurn("thread-1", "执行失败任务", [], "request");
+    const running = client.startTurn("thread-1", "$failure-check 执行失败任务", [], "request", undefined, undefined, undefined, undefined, "执行失败任务");
     testClient.handle({ id: 1, result: { turn: { id: "turn-1" } } });
     await new Promise((resolve) => setImmediate(resolve));
     testClient.failAll("Codex app-server exited: 1");
@@ -337,7 +420,7 @@ test("app-server 在 turn 完成通知前退出时保存失败终态", async () 
     assert.deepEqual(persistedTurns, [{
         threadId: "thread-1",
         turnId: "turn-1",
-        turn: { id: "turn-1", status: "failed", error: { message: "Codex app-server exited: 1" }, input: "执行失败任务" },
+        turn: { id: "turn-1", status: "failed", error: { message: "Codex app-server exited: 1" }, input: "$failure-check 执行失败任务", messageText: "执行失败任务" },
     }]);
     const completed = events.find((event) => event.type === "agent_event" && eventType(event.payload) === "turn.completed");
     assert.equal((completed?.payload as { status?: string })?.status, "failed");
