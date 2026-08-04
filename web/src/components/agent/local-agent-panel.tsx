@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Tooltip } from "antd";
 import dayjs from "dayjs";
-import { Bot, History, MessageSquare, PanelRightClose, PlugZap, Plus, Terminal } from "lucide-react";
+import { Bot, History, MessageSquare, PanelRightClose, PlugZap, Plus, Sparkles, Terminal } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageMetadata } from "@/lib/canvas/canvas-node-factory";
@@ -12,11 +12,12 @@ import { randomId } from "@/lib/utils";
 import { uploadImage } from "@/services/image-storage";
 import { bindPendingAgentUserMessage, deleteAgentThreadMessages, deletePendingAgentUserMessage, moveAgentUserMessage, readAgentUserMessages, savePendingAgentUserMessage } from "@/services/agent-chat-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { useAgentSkillStore } from "@/stores/use-agent-skill-store";
 import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentCanvasContext, type AgentChatItem, type AgentModel, type AgentPendingApproval, type AgentPendingToolCall, type AgentPermissionMode, type AgentReasoningEffort, type AgentThreadSummary } from "@/stores/use-agent-store";
 import { type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool } from "@/lib/agent/agent-site-tools";
-import { acknowledgeCodexHistory, activateAgentClient, discoverAgentConfig, fetchAgentJson, postCodexApproval, postState, postToolResult } from "./agent-api";
+import { acknowledgeCodexHistory, activateAgentClient, discoverAgentConfig, fetchAgentJson, postCodexApproval, postState, postToolResult } from "@/services/api/canvas-agent";
 import { AgentChatTimeline, AgentTaskProgress, AgentUsageBar } from "./agent-chat";
 import { AgentChatComposer } from "./agent-chat-composer";
 import { AgentConnectView } from "./agent-connect-view";
@@ -60,11 +61,12 @@ import {
 import { AgentHistoryView } from "./agent-history-view";
 import { AgentLogView } from "./agent-log-view";
 import { AgentPanelTabs } from "./agent-panel-tabs";
+import { AgentSkillsView } from "./agent-skills-view";
 
 const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_PAYLOAD_BYTES = 28 * 1024 * 1024;
 const DEFAULT_AGENT_URL = "http://127.0.0.1:17371";
-const AGENT_PROTOCOL_VERSION = 3;
+const AGENT_PROTOCOL_VERSION = 4;
 const HISTORY_RETRY_DELAYS_MS = [0, 150, 350, 700, 1200];
 const AGENT_REASONING_EFFORTS = new Set<AgentReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const AGENT_REASONING_LABELS: Record<AgentReasoningEffort, string> = { minimal: "最低", low: "轻度", medium: "中", high: "高", xhigh: "极高", max: "最高", ultra: "Ultra" };
@@ -130,6 +132,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     const pushMessage = useAgentStore((state) => state.addMessage);
     const pushEventLog = useAgentStore((state) => state.addEventLog);
     const clearEventLogs = useAgentStore((state) => state.clearEventLogs);
+    const loadSkills = useAgentSkillStore((state) => state.loadSkills);
+    const clearSkillSelection = useAgentSkillStore((state) => state.clearSelection);
+    const skillCount = useAgentSkillStore((state) => state.skills.length);
     const messageCount = useAgentStore((state) => state.messages.length);
     const canvasContextRef = useRef<AgentCanvasContext | null>(useAgentStore.getState().canvasContext);
     const confirmToolsRef = useRef(confirmTools);
@@ -306,6 +311,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 source.close();
                 connectedRef.current = false;
                 setAgentState({ enabled: false, connected: false, waiting: false, sending: false, activity: "需要重启 Agent", connectError: text, silentConnect: false, pendingTool: null, pendingApprovals: [] });
+                useAgentSkillStore.getState().reset();
                 addEventLog("Agent 版本不匹配", text, hello);
                 if (!headless) message.error(text);
                 return;
@@ -490,6 +496,11 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             const text = parseEventData<{ text?: unknown }>(event)?.text;
             addEventLog("日志", text, text);
         });
+        source.addEventListener("skills_changed", (event) => {
+            if (!isCurrentConnection()) return;
+            const data = parseEventData<{ forceReload?: boolean }>(event);
+            void loadSkills(endpoint, token, Boolean(data?.forceReload));
+        });
         source.addEventListener("agent_error", (event) => {
             const data = parseEventData<AgentEventPayload>(event);
             if (!data) return;
@@ -521,6 +532,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 pendingTool: null,
                 pendingApprovals: [],
             });
+            useAgentSkillStore.getState().reset();
             if (!wasConnected) {
                 source.close();
                 setAgentState({ enabled: false });
@@ -531,12 +543,17 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             source.close();
             connectedRef.current = false;
             loadThreadsSequenceRef.current += 1;
+            useAgentSkillStore.getState().reset();
         };
-    }, [applyWorkspaceChange, clientReady, enabled, endpoint, loadThreads, message, setAgentState, token]);
+    }, [applyWorkspaceChange, clientReady, enabled, endpoint, loadSkills, loadThreads, message, setAgentState, token]);
 
     useEffect(() => {
         if (connected) void loadThreads();
     }, [connected, loadThreads]);
+
+    useEffect(() => {
+        if (connected) void loadSkills(endpoint, token);
+    }, [connected, endpoint, loadSkills, token]);
 
     useEffect(() => {
         if (!connected) return;
@@ -578,6 +595,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     const sendPrompt = async () => {
         const text = prompt.trim();
         const files = attachments;
+        const skillState = useAgentSkillStore.getState();
+        const selectedSkill = skillState.selectedSkill;
+        const selectedSkillRevision = skillState.selectionRevision;
         const requestPrompt = promptWithAttachments(text, files);
         const currentState = useAgentStore.getState();
         if (!currentState.connected || !requestPrompt || currentState.sending || currentState.waiting || currentState.loadingThreads) return;
@@ -597,7 +617,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             if (files.length) await savePendingAgentUserMessage({ id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files });
             const modelName = models.find((item) => item.model === model)?.displayName || model || "默认模型";
             const effortName = reasoningEffort ? AGENT_REASONING_LABELS[reasoningEffort] : "默认强度";
-            addEventLog("发送任务", `${modelName} · ${effortName}${files.length ? ` · 附件 ${files.length}` : ""} · ${compactText(text) || "仅附件"}`);
+            addEventLog("发送任务", `${modelName} · ${effortName}${selectedSkill ? ` · Skill ${selectedSkill.name}` : ""}${files.length ? ` · 附件 ${files.length}` : ""} · ${compactText(text) || "仅附件"}`);
             const accepted = await fetchAgentJson<AgentTurnResponse>(endpoint, token, "/agent/codex/turn", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -610,11 +630,13 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     permissionMode,
                     model,
                     effort: reasoningEffort,
+                    skill: selectedSkill ? { name: selectedSkill.name, path: selectedSkill.path } : undefined,
                     attachments: files.map(({ id, name, type, size, width, height, dataUrl }) => ({ id, name, type, size, width, height, dataUrl })),
                 }),
             });
             threadId = accepted.threadId || threadId;
             if (!threadId) throw new Error("启动对话失败");
+            if (selectedSkill) clearSkillSelection(selectedSkillRevision);
             if (files.length) {
                 const latestMessage = useAgentStore.getState().messages.find((item) => item.clientMessageId === messageId);
                 const acceptedThreadId = latestMessage?.threadId || threadId;
@@ -886,6 +908,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             mcpStartupStatuses: {},
             ...patch,
         });
+        useAgentSkillStore.getState().reset();
         pendingToolRef.current = null;
     }
 
@@ -907,6 +930,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         if (!current.connected || current.sending || current.waiting || current.loadingThreads) return;
         const operation = beginThreadOperation();
         applyWorkspaceChange({ activeThreadId: "", emptyThread: true, draftThread: true, sourceClientId: clientIdRef.current });
+        clearSkillSelection();
         setAgentState({ activeTab: "chat", activity: "正在新建对话", bootstrapStatus: { key: "codex:preparing", text: "正在初始化 Codex 对话", detail: "正在创建会话并启动画布工具服务", status: "running" }, mcpStartupStatuses: {} });
         try {
             const result = await fetchAgentJson<AgentWorkspaceResponse>(endpoint, token, "/agent/codex/threads/reset", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientId: clientIdRef.current, permissionMode }) });
@@ -1199,23 +1223,30 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         setAgentState({ messages: currentMessages.map((message, itemIndex) => itemIndex === index ? { ...message, text: isDelta ? `${message.text}${text}` : mergeStreamText(message.text, text) } : message) });
     };
 
+    const connectionStatus = connectError ? "连接失败" : connected ? "已连接" : enabled ? "连接中" : "未连接";
+    const connectionStatusColor = connectError ? "#dc2626" : connected ? "#16a34a" : enabled ? "#d97706" : theme.node.muted;
     const content = (
         <>
             <AgentPanelTabs
                 value={activeTab}
                 theme={theme}
                 leading={
-                    <div className="flex items-center gap-2 pr-1">
+                    <div className="flex items-center gap-1">
                         <span className="grid size-8 place-items-center">
                             <Bot className="size-4" />
                         </span>
-                        <div className="text-base font-semibold leading-5">Agent</div>
+                        <div className="hidden text-base font-semibold leading-5 @min-[560px]:block">Agent</div>
+                        <Tooltip title={`连接设置 · ${connectionStatus}`} placement="bottom">
+                            <Button size="small" type="text" className="!h-8 !w-8 !min-w-8 !px-0 @min-[560px]:!w-auto @min-[560px]:!min-w-0 @min-[560px]:!px-[7px]" aria-label={`连接设置，当前${connectionStatus}`} icon={<PlugZap className="size-3.5" style={{ color: connectionStatusColor }} />} onClick={() => setAgentState({ activeTab: "setup" })}>
+                                <span className="hidden @min-[560px]:inline">{connectionStatus}</span>
+                            </Button>
+                        </Tooltip>
                     </div>
                 }
                 items={[
-                    { value: "setup", label: "连接", icon: <PlugZap className="size-3.5" /> },
                     { value: "chat", label: "对话", icon: <MessageSquare className="size-3.5" /> },
                     { value: "history", label: "历史", icon: <History className="size-3.5" />, count: threads.length },
+                    { value: "skills", label: "技能", icon: <Sparkles className="size-3.5" />, count: skillCount },
                     { value: "log", label: "日志", icon: <Terminal className="size-3.5" />, count: eventLogs.length },
                 ]}
                 onChange={(activeTab) => {
@@ -1224,11 +1255,13 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 }}
                 right={
                     <>
-                        <Button size="small" type="text" disabled={!connected || loadingThreads || sending || waiting} icon={<Plus className="size-3.5" />} onClick={startNewThread}>
-                            新对话
-                        </Button>
+                        <Tooltip title="新对话" placement="bottom">
+                            <Button size="small" type="text" className="!h-8 !w-8 !min-w-8 !px-0 @min-[560px]:!w-auto @min-[560px]:!min-w-0 @min-[560px]:!px-[7px]" aria-label="新对话" disabled={!connected || loadingThreads || sending || waiting} icon={<Plus className="size-3.5" />} onClick={startNewThread}>
+                                <span className="hidden @min-[560px]:inline">新对话</span>
+                            </Button>
+                        </Tooltip>
                         <Tooltip title="收起对话">
-                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.muted }} icon={<PanelRightClose className="size-4" />} onClick={closePanel} />
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" aria-label="收起 Agent 面板" style={{ color: theme.node.muted }} icon={<PanelRightClose className="size-4" />} onClick={closePanel} />
                         </Tooltip>
                     </>
                 }
@@ -1247,6 +1280,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     onTokenChange={(token) => setAgentState({ token, connectError: "" })}
                     onToggleEnabled={toggleAgentConnection}
                 />
+            ) : activeTab === "skills" ? (
+                <AgentSkillsView />
             ) : activeTab === "history" ? (
                 <AgentHistoryView
                     theme={theme}
@@ -1308,7 +1343,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                         }}
                         left={
                             attachments.length ? (
-                                <span className="text-[11px]" style={{ color: theme.node.muted }}>
+                                <span className="hidden text-[11px] @min-[660px]:inline" style={{ color: theme.node.muted }}>
                                     {formatBytes(attachmentPayloadBytes(attachments))} / 30MB
                                 </span>
                             ) : null

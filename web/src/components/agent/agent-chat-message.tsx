@@ -6,7 +6,7 @@ import { Streamdown, type LinkSafetyModalProps } from "streamdown";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useAgentStore, type AgentPendingApproval } from "@/stores/use-agent-store";
-import { revealAgentLocalFile } from "./agent-api";
+import { revealAgentLocalFile } from "@/services/api/canvas-agent";
 
 const streamdownProps = {
     className: "agent-streamdown",

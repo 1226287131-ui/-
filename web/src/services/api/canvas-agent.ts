@@ -2,6 +2,32 @@ import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 
 type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: string; token?: string; hasToken?: boolean };
 
+export type AgentSkillScope = "user" | "repo" | "system" | "admin";
+export type AgentSkillInterface = { displayName?: string | null; shortDescription?: string | null; defaultPrompt?: string | null };
+export type AgentSkillSummary = {
+    name: string;
+    description: string;
+    shortDescription?: string | null;
+    interface?: AgentSkillInterface | null;
+    dependencies?: unknown;
+    path: string;
+    scope: AgentSkillScope;
+    enabled: boolean;
+    managed: boolean;
+};
+export type AgentSkillDetail = {
+    name: string;
+    description: string;
+    instructions: string;
+    interface?: AgentSkillInterface | null;
+    path: string;
+    managed: true;
+    revision: string;
+};
+export type AgentSkillInput = { name?: string; description: string; instructions: string; interface?: AgentSkillInterface | null; expectedRevision?: string };
+export type AgentSkillsResponse = { ok?: boolean; data?: AgentSkillSummary[]; errors?: unknown[] };
+export type AgentSkillResponse = { ok?: boolean; data?: AgentSkillDetail };
+
 export async function postState(endpoint: string, token: string, clientId: string, snapshot: CanvasAgentSnapshot | null) {
     try {
         await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
@@ -34,6 +60,30 @@ export async function revealAgentLocalFile(endpoint: string, token: string, path
     await fetchAgentJson(endpoint, token, "/agent/local-file/reveal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
 }
 
+export function fetchCodexSkills(endpoint: string, token: string, forceReload = false) {
+    return fetchAgentJson<AgentSkillsResponse>(endpoint, token, `/agent/codex/skills${forceReload ? "?forceReload=1" : ""}`);
+}
+
+export function fetchCodexSkill(endpoint: string, token: string, name: string) {
+    return fetchAgentJson<AgentSkillResponse>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}`);
+}
+
+export function createCodexSkill(endpoint: string, token: string, input: AgentSkillInput) {
+    return fetchAgentJson<AgentSkillResponse>(endpoint, token, "/agent/codex/skills", jsonPost(input));
+}
+
+export function updateCodexSkill(endpoint: string, token: string, name: string, input: AgentSkillInput) {
+    return fetchAgentJson<AgentSkillResponse>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}`, jsonPost(input));
+}
+
+export function deleteCodexSkill(endpoint: string, token: string, name: string, expectedRevision: string) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/delete`, jsonPost({ expectedRevision }));
+}
+
+export function setCodexSkillEnabled(endpoint: string, token: string, skill: Pick<AgentSkillSummary, "name" | "path">, enabled: boolean) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(skill.name)}/enabled`, jsonPost({ ...skill, enabled }));
+}
+
 export async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit) {
     const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
     const res = await fetch(url, init);
@@ -51,4 +101,8 @@ export async function discoverAgentConfig(endpoint: string) {
     } catch {
         return null;
     }
+}
+
+function jsonPost(body: unknown): RequestInit {
+    return { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
 }
