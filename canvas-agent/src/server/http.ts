@@ -4,7 +4,7 @@ import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { runClaudeTurn } from "../agent/claude.js";
-import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, interruptCodexTurn, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
+import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
 import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-protocol.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
@@ -50,6 +50,7 @@ export function startHttpServer() {
         return workspace;
     };
     let draftThreadStart: ReturnType<typeof startCodexThread> | null = null;
+    let skillDraftRunning = false;
     const prepareDraftThread = (clientId: string, permission: AgentPermissionMode) => {
         if (draftThreadStart) return draftThreadStart;
         const workspace = ensureSiteWorkspace(config);
@@ -140,15 +141,48 @@ export function startHttpServer() {
         const result = await listCodexSkills(emit, workspace.workspacePath, String(req.query.forceReload || "") === "1");
         res.json({ ok: true, data: result.skills.map((skill) => ({ ...skill, managed: skillStore.isManagedPath(skill.path) })), errors: result.errors });
     }));
+    app.post("/agent/codex/skills/draft", codexMutation(async (req, res) => {
+        const workspace = ensureSiteWorkspace(config);
+        const source = String(req.body?.source || "");
+        if (source !== "conversation" && source !== "canvas") return res.status(400).json({ ok: false, error: "Skill 草稿来源无效" });
+        const clientId = String(req.body?.clientId || "");
+        if (!clientId || !session.hasClient(clientId)) return res.status(409).json({ ok: false, error: "发起提炼的网页已断开，请重新连接后再试" });
+        const model = String(req.body?.model || "") || undefined;
+        const effort = reasoningEffort(req.body?.effort);
+        const previousCodexState = session.codexStateSnapshot;
+        skillDraftRunning = true;
+        try {
+            if (source === "conversation") {
+                const threadId = String(req.body?.threadId || "");
+                if (!threadId) return res.status(409).json({ ok: false, error: "当前没有可提炼的对话" });
+                if (threadId !== (workspace.activeThreadId || "")) return res.status(409).json({ ok: false, error: "当前对话已在其他页面切换，请同步后重试" });
+                const history = await readCodexThread(emit, threadId, workspace.workspacePath);
+                if (!history.messages.some((message) => message.role === "user" && message.turnId)) return res.status(409).json({ ok: false, error: "当前对话还没有可提炼的已完成内容" });
+                session.setCodexState({ busy: true, threadId, turnId: "" }, { preserveReplay: true });
+                const data = await generateCodexSkillDraft(emit, workspace.workspacePath, { source, threadId, model, effort });
+                if (!session.hasClient(clientId)) return res.status(409).json({ ok: false, error: "发起提炼的网页已断开，请重新连接后再试" });
+                return res.json({ ok: true, data });
+            }
+            const snapshot = session.canvasStateForClient(clientId);
+            if (!snapshot || (snapshot as Record<string, unknown>).hasCanvas === false) return res.status(409).json({ ok: false, error: "当前页面没有可提炼的画布" });
+            session.setCodexState({ busy: true, threadId: workspace.activeThreadId || "", turnId: "" }, { preserveReplay: true });
+            const data = await generateCodexSkillDraft(emit, workspace.workspacePath, { source, snapshot, model, effort });
+            if (!session.hasClient(clientId)) return res.status(409).json({ ok: false, error: "发起提炼的网页已断开，请重新连接后再试" });
+            return res.json({ ok: true, data });
+        } finally {
+            skillDraftRunning = false;
+            session.setCodexState(previousCodexState, { preserveReplay: true });
+        }
+    }));
     app.get("/agent/codex/skills/:name", route(async (req, res) => {
         res.json({ ok: true, data: await skillStore.get(routeParam(req.params.name)) });
     }));
-    app.post("/agent/codex/skills", route(async (req, res) => {
+    app.post("/agent/codex/skills", codexMutation(async (req, res) => {
         const data = await skillStore.create(req.body);
         session.emitAll("skills_changed", { forceReload: true });
         res.status(201).json({ ok: true, data });
     }));
-    app.post("/agent/codex/skills/:name/enabled", route(async (req, res) => {
+    app.post("/agent/codex/skills/:name/enabled", codexMutation(async (req, res) => {
         if (typeof req.body?.enabled !== "boolean") return res.status(400).json({ ok: false, error: "Skill 启用状态无效" });
         const workspace = ensureSiteWorkspace(config);
         const selector = skillSelector(req.body);
@@ -157,12 +191,12 @@ export function startHttpServer() {
         session.emitAll("skills_changed", { forceReload: true });
         res.json({ ok: true, data });
     }));
-    app.post("/agent/codex/skills/:name/delete", route(async (req, res) => {
+    app.post("/agent/codex/skills/:name/delete", codexMutation(async (req, res) => {
         await skillStore.delete(routeParam(req.params.name), String(req.body?.expectedRevision || ""));
         session.emitAll("skills_changed", { forceReload: true });
         res.json({ ok: true });
     }));
-    app.post("/agent/codex/skills/:name", route(async (req, res) => {
+    app.post("/agent/codex/skills/:name", codexMutation(async (req, res) => {
         const data = await skillStore.update(routeParam(req.params.name), req.body);
         session.emitAll("skills_changed", { forceReload: true });
         res.json({ ok: true, data });
@@ -326,7 +360,10 @@ export function startHttpServer() {
         const ok = await resolveCodexApproval(String(req.body?.requestId || ""), decision);
         res.status(ok ? 200 : 409).json({ ok, ...(ok ? {} : { error: "审批请求已失效" }) });
     }));
-    app.post("/agent/codex/interrupt", route(async (req, res) => res.json({ ok: await interruptCodexTurn(String(req.body?.threadId || "")) })));
+    app.post("/agent/codex/interrupt", route(async (req, res) => {
+        const ok = await interruptCodexTurn(skillDraftRunning ? undefined : String(req.body?.threadId || ""));
+        res.status(ok ? 200 : 409).json({ ok, ...(ok ? {} : { error: "当前没有可停止的任务" }) });
+    }));
     app.post("/agent/claude/turn", (req, res) => {
         runClaudeTurn(String(req.body?.prompt || ""), emit);
         res.json({ ok: true });

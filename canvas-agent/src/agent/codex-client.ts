@@ -12,7 +12,7 @@ import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, Co
 import type { AgentEmit, AgentPermissionMode } from "./types.js";
 
 type AgentEvent = JsonRecord & { type: string; usage?: unknown };
-type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
+type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; silent?: boolean };
 type ActiveTurn = PendingRequest & { threadId: string; turnId: string; prompt: string; messageText?: string };
 type ItemDeltaParams = { threadId: string; turnId: string; itemId: string; delta: string; summaryIndex?: number };
 type PendingDelta = { delta: string; itemType: string; params: ItemDeltaParams; timer: ReturnType<typeof setTimeout> };
@@ -23,6 +23,7 @@ const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
 const STREAM_UPDATE_INTERVAL_MS = 40;
 const supplementalItemTypes = new Set(["agent_message", "reasoning", "plan", "mcp_tool_call", "command_execution", "file_change", "dynamic_tool_call", "collab_tool_call", "web_search", "image_view", "image_generation", "context_compaction"]);
+const SKILL_DRAFT_INSTRUCTIONS = "你只负责根据已提供的对话或画布快照生成可编辑的 Codex Skill 草稿。不要调用任何工具，不要执行命令，不要读取文件，不要访问网络，不要修改任何状态。严格按 outputSchema 返回结果，并排除凭证、密钥、Token、本地路径、临时错误、调试日志和一次性结果。";
 
 /** 表示错误已经通过 app-server 终态或进程事件通知过网页。 */
 export class CodexReportedError extends Error {
@@ -43,6 +44,7 @@ export class CodexAppClient {
     private pending = new Map<number, PendingRequest>();
     private activeTurns = new Map<string, ActiveTurn>();
     private completedTurns = new Map<string, Error | null>();
+    private completedTurnResults = new Map<string, unknown>();
     private pendingDeltas = new Map<string, PendingDelta>();
     private startedItems = new Map<string, JsonRecord>();
     private itemSequences = new Map<string, number>();
@@ -51,7 +53,12 @@ export class CodexAppClient {
     private approvalRequests = new Map<string, ApprovalRequest>();
     private finalizingTurns = new Map<string, Promise<void>>();
     private skillReloads = new Map<string, Promise<CodexRequestResult<"skills/list">>>();
+    private silentThreadIds = new Set<string>();
+    private structuredOutputByTurn = new Map<string, string>();
+    private pendingSilentThreadStarts = new Set<symbol>();
+    private pendingThreadStartedNotifications: JsonRecord[] = [];
     private failing = false;
+    private failureMessage = "";
 
     /** 保存 app-server 子进程和事件出口。 */
     private constructor(private child: ChildProcess, private emit: AgentEmit, private eventHistory: Pick<CodexEventHistory, "record" | "recordTurn"> = codexEventHistory) {}
@@ -69,6 +76,7 @@ export class CodexAppClient {
         };
         child.stdout?.on("data", (chunk) => client.read(chunk.toString()));
         child.stderr?.on("data", (chunk) => {
+            if (client.skillDraftActive) return;
             const text = stripAnsi(chunk.toString()).replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, "");
             logger.warn("Codex app-server stderr", { text });
             emit("agent_log", { text });
@@ -97,6 +105,16 @@ export class CodexAppClient {
         return thread;
     }
 
+    /** 创建不会持久化或向网页广播的草稿线程。 */
+    async startSkillDraftThread(cwd: string) {
+        return await this.startSilentThread("thread/start", { ...skillDraftThreadSettings(cwd), threadSource: "user" });
+    }
+
+    /** 从指定对话派生不会持久化或向网页广播的草稿线程。 */
+    async forkSkillDraftThread(threadId: string, cwd: string) {
+        return await this.startSilentThread("thread/fork", { ...skillDraftThreadSettings(cwd), threadId, threadSource: "user" });
+    }
+
     /** 恢复已有 Codex 线程。 */
     async resumeThread(threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request") {
         const { thread } = await this.request("thread/resume", { threadId, ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}) });
@@ -117,6 +135,17 @@ export class CodexAppClient {
     /** 归档指定 Codex 线程。 */
     archiveThread(threadId: string) {
         return this.request("thread/archive", { threadId });
+    }
+
+    /** 释放临时草稿线程的 App Server 订阅和进程内缓存。 */
+    async closeSkillDraftThread(threadId: string) {
+        try {
+            if (!this.failing) await this.request("thread/unsubscribe", { threadId }, true);
+        } finally {
+            this.silentThreadIds.delete(threadId);
+            const prefix = `${threadId}\0`;
+            [...this.structuredOutputByTurn.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => this.structuredOutputByTurn.delete(key));
+        }
     }
 
     /** 查询当前账号可用的 Codex 模型。 */
@@ -157,14 +186,14 @@ export class CodexAppClient {
     }
 
     /** 启动一个 Codex turn 并等待完成通知。 */
-    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, model?: string, effort?: CodexReasoningEffort, onTurn?: (turnId: string) => void, skill?: CodexSkillSelector, messageText?: string) {
+    async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, model?: string, effort?: CodexReasoningEffort, onTurn?: (turnId: string) => void, skill?: CodexSkillSelector, messageText?: string, outputSchema?: JsonRecord) {
         this.currentThreadId = threadId;
         this.currentTurnId = "";
         this.lastUsage = null;
         const pendingStart: PendingTurnStart = { threadId, prompt, messageText, onTurn };
         this.pendingTurnStart = pendingStart;
         try {
-            const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images, skill), ...turnSettings(permissionMode), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
+            const { turn } = await this.request("turn/start", { threadId, input: codexInput(prompt, images, skill), ...(outputSchema ? skillDraftTurnSettings() : turnSettings(permissionMode)), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(outputSchema ? { outputSchema } : {}) }, Boolean(outputSchema));
             const turnId = turn.id;
             if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
             pendingStart.turnId = turnId;
@@ -174,12 +203,14 @@ export class CodexAppClient {
             const completed = this.completedTurns.get(turnKey);
             if (this.completedTurns.has(turnKey)) {
                 this.completedTurns.delete(turnKey);
+                const result = this.completedTurnResults.get(turnKey);
+                this.completedTurnResults.delete(turnKey);
                 this.currentThreadId = "";
                 this.currentTurnId = "";
                 if (completed) throw completed;
-                return;
+                return result;
             }
-            await new Promise((resolve, reject) => this.activeTurns.set(turnKey, { resolve, reject, threadId, turnId, prompt, messageText }));
+            return await new Promise((resolve, reject) => this.activeTurns.set(turnKey, { resolve, reject, threadId, turnId, prompt, messageText }));
         } catch (error) {
             if (!this.currentTurnId) this.currentThreadId = "";
             throw error;
@@ -187,6 +218,15 @@ export class CodexAppClient {
             if (this.pendingTurnStart === pendingStart) this.pendingTurnStart = undefined;
             if (pendingStart.turnId) this.startedTurnKeys.delete(turnCacheKey(threadId, pendingStart.turnId));
         }
+    }
+
+    /** 在静默线程中生成结构化输出。 */
+    async generateSkillDraft(threadId: string, prompt: string, outputSchema: JsonRecord, model?: string, effort?: CodexReasoningEffort) {
+        this.silentThreadIds.add(threadId);
+        const result = await this.startTurn(threadId, prompt, [], "request", model, effort, undefined, undefined, undefined, outputSchema);
+        const output = String(field(result, "output") || "").trim();
+        if (!output) throw new Error("Codex 没有返回 Skill 草稿");
+        return output;
     }
 
     /** 中断当前正在运行且属于指定线程的 Codex turn。 */
@@ -219,11 +259,28 @@ export class CodexAppClient {
         return true;
     }
 
+    /** 标记下一次临时线程创建，使早于请求响应到达的通知也不会外泄。 */
+    private async startSilentThread<Method extends "thread/start" | "thread/fork">(method: Method, params: CodexRequestParams<Method>) {
+        const pendingStart = Symbol();
+        this.pendingSilentThreadStarts.add(pendingStart);
+        try {
+            const result = await this.request(method, params, true);
+            const thread = result.thread;
+            if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
+            this.silentThreadIds.add(thread.id);
+            return thread;
+        } finally {
+            this.pendingSilentThreadStarts.delete(pendingStart);
+            if (!this.pendingSilentThreadStarts.size) this.flushPendingThreadStartedNotifications();
+        }
+    }
+
     /** 发送 JSON-RPC 请求并保存待处理 Promise。 */
-    private request<Method extends CodexRequestMethod>(method: Method, params: CodexRequestParams<Method>) {
+    private request<Method extends CodexRequestMethod>(method: Method, params: CodexRequestParams<Method>, silent = false) {
+        if (this.failing) return Promise.reject(new CodexReportedError(this.failureMessage || "Codex app-server 已停止")) as Promise<CodexRequestResult<Method>>;
         const id = this.nextId++;
-        this.write({ id, method, params });
-        return new Promise<CodexRequestResult<Method>>((resolve, reject) => this.pending.set(id, { resolve: (result) => resolve(result as CodexRequestResult<Method>), reject }));
+        this.write({ id, method, params }, silent);
+        return new Promise<CodexRequestResult<Method>>((resolve, reject) => this.pending.set(id, { resolve: (result) => resolve(result as CodexRequestResult<Method>), reject, silent }));
     }
 
     /** 发送无需响应的 JSON-RPC 通知。 */
@@ -232,10 +289,10 @@ export class CodexAppClient {
     }
 
     /** 将 JSON-RPC 消息写入 app-server 标准输入。 */
-    private write(value: unknown) {
+    private write(value: unknown, silent = false) {
         const method = String(field(value, "method") || "");
         const params = field(value, "params");
-        if (method) logger.debug(`Codex ${method}`, { id: field(value, "id"), threadId: field(params, "threadId") });
+        if (method && !silent) logger.debug(`Codex ${method}`, { id: field(value, "id"), threadId: field(params, "threadId") });
         this.child.stdin?.write(`${JSON.stringify(value)}\n`);
     }
 
@@ -248,8 +305,10 @@ export class CodexAppClient {
             try {
                 this.handle(JSON.parse(line) as JsonRecord);
             } catch (error) {
-                logger.warn("Invalid Codex app-server output", { error, line });
-                this.emit("agent_log", { text: line });
+                if (!this.skillDraftActive) {
+                    logger.warn("Invalid Codex app-server output", { error, line });
+                    this.emit("agent_log", { text: line });
+                }
             }
         });
     }
@@ -259,8 +318,10 @@ export class CodexAppClient {
         const id = Number(message.id);
         if (message.error && this.pending.has(id)) {
             const error = String(field(message.error, "message") || "Codex request failed");
-            if (/not materialized yet.*includeTurns/i.test(error)) logger.debug("Codex thread has no messages yet", { id });
-            else logger.warn("Codex request failed", { id, error });
+            if (!this.pending.get(id)?.silent) {
+                if (/not materialized yet.*includeTurns/i.test(error)) logger.debug("Codex thread has no messages yet", { id });
+                else logger.warn("Codex request failed", { id, error });
+            }
             return this.reject(id, error);
         }
         if (this.pending.has(id)) return this.resolve(id, message.result);
@@ -270,6 +331,7 @@ export class CodexAppClient {
 
     /** 转换并广播 app-server 通知。 */
     private handleNotification(method: string, params: JsonRecord) {
+        if (this.handleSilentNotification(method, params)) return;
         if (method === "skills/changed") {
             this.emit("skills_changed", {});
             return;
@@ -393,6 +455,81 @@ export class CodexAppClient {
         this.emit("agent_event", { agent: "codex", ...event });
     }
 
+    /** 草稿线程存续期间隐藏 app-server 自身输出，避免混入网页诊断日志。 */
+    private get skillDraftActive() {
+        return this.pendingSilentThreadStarts.size > 0 || this.silentThreadIds.size > 0;
+    }
+
+    /** 消化临时草稿线程事件，不广播、不落补充历史。 */
+    private handleSilentNotification(method: string, params: JsonRecord) {
+        if (method === "thread/started") {
+            const thread = field(params, "thread");
+            const threadId = String(field(thread, "id") || "");
+            if (!threadId) return false;
+            if (this.silentThreadIds.has(threadId)) return true;
+            if (!this.pendingSilentThreadStarts.size) return false;
+            this.pendingThreadStartedNotifications.push(params);
+            return true;
+        }
+        if (!(method === "error" || method.startsWith("turn/") || method.startsWith("item/") || method === "thread/tokenUsage/updated")) return false;
+        const threadId = String(field(params, "threadId") || this.currentThreadId);
+        if (!threadId || !this.silentThreadIds.has(threadId)) return false;
+        const turnId = String(field(params, "turnId") || field(field(params, "turn"), "id") || this.currentTurnId);
+        if (method === "turn/started") {
+            this.currentThreadId = threadId;
+            this.currentTurnId = turnId;
+            this.notifyTurnStarted(threadId, turnId);
+            return true;
+        }
+        if (method === "item/agentMessage/delta") {
+            const itemId = String(field(params, "itemId") || "");
+            if (itemId && turnId) {
+                const key = itemCacheKey({ threadId, turnId, itemId });
+                this.textByItem.set(key, `${this.textByItem.get(key) || ""}${String(field(params, "delta") || "")}`);
+            }
+            return true;
+        }
+        if (method === "item/completed") {
+            const item = normalizeItem(field(params, "item"));
+            const itemId = String(field(item, "id") || "");
+            const key = itemCacheKey({ threadId, turnId, itemId });
+            if (item.type === "agent_message" && turnId) {
+                const text = String(item.text || this.textByItem.get(key) || "").trim();
+                if (text) this.structuredOutputByTurn.set(turnCacheKey(threadId, turnId), text);
+            }
+            if (itemId) this.textByItem.delete(key);
+            return true;
+        }
+        if (method !== "turn/completed") return true;
+        const turn = field(params, "turn") as CodexNotificationParams<"turn/completed">["turn"];
+        const completedTurnId = String(field(turn, "id") || turnId);
+        const turnKey = turnCacheKey(threadId, completedTurnId);
+        const output = this.structuredOutputByTurn.get(turnKey) || "";
+        this.structuredOutputByTurn.delete(turnKey);
+        this.finishTurnDeltas(threadId, completedTurnId);
+        const failure = turn.error ? new CodexReportedError(turn.error.message || "Codex turn failed") : null;
+        const pending = this.activeTurns.get(turnKey);
+        const result = { output };
+        if (pending) {
+            this.activeTurns.delete(turnKey);
+            failure ? pending.reject(failure) : pending.resolve(result);
+        } else if (completedTurnId) {
+            this.completedTurns.set(turnKey, failure);
+            this.completedTurnResults.set(turnKey, result);
+        }
+        if (completedTurnId === this.currentTurnId) {
+            this.currentThreadId = "";
+            this.currentTurnId = "";
+        }
+        return true;
+    }
+
+    /** 请求响应确定静默线程 ID 后，重新分流早到的启动通知。 */
+    private flushPendingThreadStartedNotifications() {
+        const notifications = this.pendingThreadStartedNotifications.splice(0);
+        notifications.forEach((params) => this.handleNotification("thread/started", params));
+    }
+
     /** 补充历史落盘后再广播 turn 终态，确保界面完成状态可跨 Agent 重启恢复。 */
     private completeTurn(event: AgentEvent, params: JsonRecord, eventScope: ReturnType<typeof codexEventScope>) {
         const turn = (params as unknown as CodexNotificationParams<"turn/completed">).turn;
@@ -492,6 +629,12 @@ export class CodexAppClient {
     private answerServerRequest(message: JsonRecord) {
         const method = String(message.method);
         const params = (field(message, "params") as JsonRecord) || {};
+        const threadId = String(field(params, "threadId") || this.currentThreadId);
+        if (this.silentThreadIds.has(threadId)) {
+            const result = method === "item/permissions/requestApproval" ? { permissions: {}, scope: "turn" } : { decision: "decline" };
+            this.write({ id: message.id, result });
+            return;
+        }
         if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(method)) {
             const requestId = String(message.id);
             this.approvalRequests.set(requestId, { id: Number(message.id), method, params });
@@ -519,13 +662,15 @@ export class CodexAppClient {
     private failAll(message: string, reported = false) {
         if (this.failing) return;
         this.failing = true;
+        this.failureMessage = message;
         this.approvalRequests.forEach((request, requestId) => this.emit("codex_approval_resolved", { ...request.params, requestId, decision: request.decision || "cancel" }));
         const failedTurns = new Map<string, { threadId: string; turnId: string; prompt: string; messageText?: string }>();
         this.activeTurns.forEach(({ threadId, turnId, prompt, messageText }, key) => {
+            if (this.silentThreadIds.has(threadId)) return;
             if (!this.finalizingTurns.has(key)) failedTurns.set(key, { threadId, turnId, prompt, messageText });
         });
         const pendingStart = this.pendingTurnStart;
-        if (pendingStart?.turnId) {
+        if (pendingStart?.turnId && !this.silentThreadIds.has(pendingStart.threadId)) {
             const key = turnCacheKey(pendingStart.threadId, pendingStart.turnId);
             if (!this.finalizingTurns.has(key) && !failedTurns.has(key)) failedTurns.set(key, { threadId: pendingStart.threadId, turnId: pendingStart.turnId, prompt: pendingStart.prompt, messageText: pendingStart.messageText });
         }
@@ -544,7 +689,12 @@ export class CodexAppClient {
         this.nextItemSequences.clear();
         this.plansByTurn.clear();
         this.completedTurns.clear();
+        this.completedTurnResults.clear();
         this.approvalRequests.clear();
+        this.silentThreadIds.clear();
+        this.pendingSilentThreadStarts.clear();
+        this.pendingThreadStartedNotifications.length = 0;
+        this.structuredOutputByTurn.clear();
         this.pendingTurnStart = undefined;
         this.startedTurnKeys.clear();
         this.lastUsage = null;
@@ -606,11 +756,26 @@ function threadSettings(permissionMode: AgentPermissionMode) {
     return { approvalPolicy: permissionMode === "full" ? "never" as const : "on-request" as const, sandbox: permissionMode === "full" ? "danger-full-access" as const : "workspace-write" as const, config: codexConfig(permissionMode) };
 }
 
+function skillDraftThreadSettings(cwd: string) {
+    return {
+        approvalPolicy: "never" as const,
+        sandbox: "read-only" as const,
+        config: { model_reasoning_summary: "auto", mcp_servers: {} },
+        cwd,
+        developerInstructions: SKILL_DRAFT_INSTRUCTIONS,
+        ephemeral: true,
+    };
+}
+
 function turnSettings(permissionMode: AgentPermissionMode) {
     return {
         approvalPolicy: permissionMode === "full" ? "never" as const : "on-request" as const,
         sandboxPolicy: permissionMode === "full" ? { type: "dangerFullAccess" as const } : { type: "workspaceWrite" as const, networkAccess: false },
     };
+}
+
+function skillDraftTurnSettings() {
+    return { approvalPolicy: "never" as const, sandboxPolicy: { type: "readOnly" as const, networkAccess: false } };
 }
 
 /** 将文本、本地图片和显式 Skill 转换为 Codex turn 输入。 */

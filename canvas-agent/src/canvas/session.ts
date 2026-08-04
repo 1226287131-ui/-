@@ -12,7 +12,7 @@ type PendingRequest = { clientId: string; resolve: (value: unknown) => void; rej
 type TurnAttachment = { clientId: string; id: string; name: string; type: string; size: number; width: number; height: number; dataUrl: string };
 type ReplayEvent = { type: string; payload: Record<string, unknown> };
 export type CodexState = { busy: boolean; threadId: string; turnId: string };
-export const AGENT_PROTOCOL_VERSION = 4;
+export const AGENT_PROTOCOL_VERSION = 5;
 
 const SITE_TOOLS = new Set<ToolName>([
     "site_navigate",
@@ -67,9 +67,19 @@ export class CanvasSession {
         return this.codexState.threadId;
     }
 
+    /** Return a copy that callers can restore after a temporary Codex operation. */
+    get codexStateSnapshot(): CodexState {
+        return { ...this.codexState };
+    }
+
     /** 判断网页客户端是否仍连接到当前 Agent。 */
     hasClient(clientId: string) {
         return this.clients.has(clientId);
+    }
+
+    /** 读取指定网页上报的画布，避免提炼时受最近焦点或其他标签页影响。 */
+    canvasStateForClient(clientId: string) {
+        return this.clients.has(clientId) ? this.canvasStates.get(clientId) || null : null;
     }
 
     /** 原子取得 Codex 写操作权限，避免多个网页并发切换或修改会话。 */
@@ -106,13 +116,13 @@ export class CanvasSession {
         if (type === "agent_error") this.pendingApprovals.clear();
     }
 
-    /** 更新并广播 Codex 运行状态。 */
-    setCodexState(patch: Partial<CodexState>) {
+    /** 更新并广播 Codex 运行状态；静默后台活动可保留上一 turn 的断线重放。 */
+    setCodexState(patch: Partial<CodexState>, options: { preserveReplay?: boolean } = {}) {
         const next = { ...this.codexState, ...patch };
         const threadChanged = next.threadId !== this.codexState.threadId;
         const turnChanged = Boolean(this.codexState.turnId && next.turnId && next.turnId !== this.codexState.turnId);
         const nextTurnStarted = !this.codexState.busy && next.busy;
-        if (threadChanged || turnChanged || nextTurnStarted) {
+        if (!options.preserveReplay && (threadChanged || turnChanged || nextTurnStarted)) {
             this.codexReplayEvents.clear();
             this.codexReplayActiveItems.clear();
         }
