@@ -3,6 +3,13 @@ import type { AgentReasoningEffort } from "@/stores/use-agent-store";
 
 type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: string; token?: string; hasToken?: boolean };
 
+export class AgentApiError<T = unknown> extends Error {
+    constructor(readonly status: number, readonly response: T & { code?: string; error?: string; msg?: string }) {
+        super(response.error || response.msg || "本地 Agent 请求失败");
+        this.name = "AgentApiError";
+    }
+}
+
 export type AgentSkillScope = "user" | "repo" | "system" | "admin";
 export type AgentSkillInterface = { displayName?: string | null; shortDescription?: string | null; defaultPrompt?: string | null };
 export type AgentSkillSummary = {
@@ -103,7 +110,7 @@ export async function fetchAgentJson<T>(endpoint: string, token: string, path: s
     const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
     const res = await fetch(url, init);
     const data = (await res.json().catch(() => ({}))) as T & { error?: string; msg?: string };
-    if (!res.ok) throw new Error(data.error || data.msg || "本地 Agent 请求失败");
+    if (!res.ok) throw new AgentApiError(res.status, data);
     return data;
 }
 

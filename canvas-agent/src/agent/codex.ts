@@ -84,17 +84,17 @@ export async function resolveCodexApproval(requestId: string, decision: string) 
 }
 
 /** 创建新的 Codex 线程并记录当前线程 ID。 */
-export async function startCodexThread(emit: AgentEmit, cwd?: string, permissionMode: AgentPermissionMode = "request") {
+export async function startCodexThread(emit: AgentEmit, cwd?: string, permissionMode: AgentPermissionMode = "request", preheat = false) {
     const app = await getCodexApp(emit);
-    const thread = await app.startThread(cwd, permissionMode);
+    const thread = await app.startThread(cwd, permissionMode, preheat);
     loadedThreadId = String(field(thread, "id") || "");
     return thread;
 }
 
 /** 恢复指定 Codex 线程并返回聊天历史。 */
-export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request") {
+export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request", preheat = false) {
     const app = await getCodexApp(emit);
-    const thread = await resumeLoadedThread(app, threadId, cwd, permissionMode, true);
+    const thread = await resumeLoadedThread(app, threadId, cwd, permissionMode, true, preheat);
     const history = await loadCodexHistory(emit, threadId, cwd);
     const supplementalItems = await codexEventHistory.readThread(threadId);
     return { thread, messages: threadMessages(history.thread, app.planUpdates(threadId), supplementalItems), settledTurnIds: settledTurnIds(history.thread, supplementalItems), historyReady: history.historyReady };
@@ -433,8 +433,8 @@ async function loadCodexHistory(emit: AgentEmit, threadId: string, cwd?: string)
 }
 
 /** 恢复线程并统一校验工作空间与进程内活动线程。 */
-async function resumeLoadedThread(app: CodexAppClient, threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request", updateLoaded = true) {
-    const thread = await app.resumeThread(threadId, cwd, permissionMode);
+async function resumeLoadedThread(app: CodexAppClient, threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request", updateLoaded = true, preheat = false) {
+    const thread = await app.resumeThread(threadId, cwd, permissionMode, preheat);
     assertThreadWorkspace(thread, cwd);
     if (updateLoaded) loadedThreadId = String(field(thread, "id") || threadId);
     return thread;

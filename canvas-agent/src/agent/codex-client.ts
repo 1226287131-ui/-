@@ -57,6 +57,8 @@ export class CodexAppClient {
     private structuredOutputByTurn = new Map<string, string>();
     private pendingSilentThreadStarts = new Set<symbol>();
     private pendingThreadStartedNotifications: JsonRecord[] = [];
+    private pendingPreheatThreadStarts = 0;
+    private preheatingThreadIds = new Set<string>();
     private failing = false;
     private failureMessage = "";
 
@@ -99,10 +101,22 @@ export class CodexAppClient {
     }
 
     /** 创建新的 Codex 线程。 */
-    async startThread(cwd?: string, permissionMode: AgentPermissionMode = "request") {
-        const { thread } = await this.request("thread/start", { ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}), threadSource: "user" });
-        if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
-        return thread;
+    async startThread(cwd?: string, permissionMode: AgentPermissionMode = "request", preheat = false) {
+        if (preheat) this.pendingPreheatThreadStarts += 1;
+        let threadId = "";
+        try {
+            const { thread } = await this.request("thread/start", { ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}), threadSource: "user" });
+            if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
+            threadId = thread.id;
+            if (preheat) {
+                this.preheatingThreadIds.add(threadId);
+                await this.completeMcpPreheat(threadId);
+            }
+            return thread;
+        } finally {
+            if (preheat) this.pendingPreheatThreadStarts -= 1;
+            if (threadId) this.preheatingThreadIds.delete(threadId);
+        }
     }
 
     /** 创建不会持久化或向网页广播的草稿线程。 */
@@ -116,10 +130,24 @@ export class CodexAppClient {
     }
 
     /** 恢复已有 Codex 线程。 */
-    async resumeThread(threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request") {
-        const { thread } = await this.request("thread/resume", { threadId, ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}) });
-        if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
-        return thread;
+    async resumeThread(threadId: string, cwd?: string, permissionMode: AgentPermissionMode = "request", preheat = false) {
+        if (preheat) this.pendingPreheatThreadStarts += 1;
+        try {
+            if (preheat) this.preheatingThreadIds.add(threadId);
+            const { thread } = await this.request("thread/resume", { threadId, ...threadSettings(permissionMode), ...(cwd ? { cwd } : {}) });
+            if (!thread.id) throw new Error("Codex app-server 没有返回 thread id");
+            if (preheat) await this.completeMcpPreheat(thread.id);
+            return thread;
+        } finally {
+            if (preheat) this.pendingPreheatThreadStarts -= 1;
+            if (preheat) this.preheatingThreadIds.delete(threadId);
+        }
+    }
+
+    /** 以 app-server 的权威 MCP 清单响应作为预热完成边界。 */
+    private async completeMcpPreheat(threadId: string) {
+        const result = await this.request("mcpServerStatus/list", { threadId, limit: 100, detail: "toolsAndAuthOnly" });
+        this.emit("agent_bootstrap", { type: "mcp.complete", phase: "preheat", threadId, services: result.data.map(({ name, authStatus }) => ({ name, authStatus })) });
     }
 
     /** 查询 Codex 线程列表。 */
@@ -187,6 +215,7 @@ export class CodexAppClient {
 
     /** 启动一个 Codex turn 并等待完成通知。 */
     async startTurn(threadId: string, prompt: string, images: string[], permissionMode: AgentPermissionMode, model?: string, effort?: CodexReasoningEffort, onTurn?: (turnId: string) => void, skill?: CodexSkillSelector, messageText?: string, outputSchema?: JsonRecord) {
+        this.preheatingThreadIds.delete(threadId);
         this.currentThreadId = threadId;
         this.currentTurnId = "";
         this.lastUsage = null;
@@ -347,9 +376,11 @@ export class CodexAppClient {
         }
         if (method === "mcpServer/startupStatus/updated") {
             const value = params as unknown as CodexNotificationParams<"mcpServer/startupStatus/updated">;
+            const threadId = value.threadId || this.currentThreadId;
             this.emit("agent_bootstrap", {
                 type: "mcp.startup",
-                threadId: value.threadId || this.currentThreadId,
+                phase: this.pendingPreheatThreadStarts > 0 || this.preheatingThreadIds.has(threadId) ? "preheat" : "runtime",
+                threadId,
                 name: value.name,
                 status: value.status,
                 error: value.error,

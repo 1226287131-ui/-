@@ -7,6 +7,7 @@ export type CodexItem = JsonRecord & { id: string; type: string; text?: string }
 export type CodexPlanStep = { step: string; status: "pending" | "inProgress" | "completed" };
 export type CodexPlanUpdate = { threadId: string; turnId: string; explanation?: string | null; plan: CodexPlanStep[]; turnStatus?: string };
 export type CodexMcpStartupStatus = { threadId: string | null; name: string; status: "starting" | "ready" | "failed" | "cancelled"; error: string | null; failureReason: "reauthenticationRequired" | null };
+export type CodexMcpServerStatus = { name: string; authStatus: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth" } & JsonRecord;
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type CodexModel = JsonRecord & {
     id: string;
@@ -102,6 +103,10 @@ type CodexRequestSpec = {
     "model/list": {
         params: { limit: number; includeHidden: boolean };
         result: { data: CodexModel[]; nextCursor: string | null };
+    };
+    "mcpServerStatus/list": {
+        params: { cursor?: string | null; limit?: number | null; detail?: "full" | "toolsAndAuthOnly" | null; threadId?: string | null };
+        result: { data: CodexMcpServerStatus[]; nextCursor: string | null };
     };
     "skills/list": {
         params: { cwds: string[]; forceReload?: boolean };

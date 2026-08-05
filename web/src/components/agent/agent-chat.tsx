@@ -39,7 +39,8 @@ export function AgentChatTimeline({
     const followMessagesRef = useRef(true);
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
     const streaming = messages.some((message) => message.streamId);
-    const working = bootstrapStatus || workingActivity(messages.at(-1));
+    const showBootstrap = Boolean(bootstrapStatus && !messages.some((message) => message.role === "user" || message.role === "assistant"));
+    const working = showBootstrap ? bootstrapStatus! : workingActivity(messages.at(-1));
     const updateScrollState = useCallback(() => {
         const list = listRef.current;
         if (!list) return;
@@ -89,7 +90,7 @@ export function AgentChatTimeline({
                         />
                     ) : null}
                     {pendingApprovals.map((approval) => <AgentApprovalCard key={approval.requestId} approval={approval} theme={theme} onDecision={(decision) => onApprovalDecision(approval, decision)} />)}
-                    {(sending || waiting || bootstrapStatus) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} detail={"detail" in working && typeof working.detail === "string" ? working.detail : undefined} status={bootstrapStatus?.status} mcpStatuses={Object.entries(mcpStartupStatuses).map(([name, item]) => ({ name, ...item }))} activityKey={working.key} theme={theme} /> : null}
+                    {(sending || waiting || showBootstrap) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} detail={"detail" in working && typeof working.detail === "string" ? working.detail : undefined} status={showBootstrap ? bootstrapStatus?.status : undefined} mcpStatuses={showBootstrap ? Object.entries(mcpStartupStatuses).map(([name, item]) => ({ name, ...item })) : []} activityKey={working.key} theme={theme} /> : null}
                 </div>
             </div>
             {showScrollToBottom ? (

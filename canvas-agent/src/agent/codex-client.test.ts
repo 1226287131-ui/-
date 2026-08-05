@@ -150,6 +150,41 @@ test("skills/changed 作为站点级事件单独广播", () => {
     assert.deepEqual(events, [{ type: "skills_changed", payload: {} }]);
 });
 
+test("MCP 启动状态区分空对话预热与正常 turn 运行", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const child = { stdin: { write: (line: string) => (writes.push(JSON.parse(line)), true) } };
+    const client = Reflect.construct(CodexAppClient, [child, (type: string, payload: unknown) => events.push({ type, payload }), emptyEventHistory]) as CodexAppClient;
+    const testClient = client as unknown as TestClient;
+
+    const starting = client.startThread("D:\\site", "request", true);
+    const request = writes.find((item) => item.method === "thread/start");
+    assert.ok(request);
+    testClient.handleNotification("mcpServer/startupStatus/updated", { threadId: "thread-1", name: "notion", status: "starting" });
+    testClient.handle({ id: request.id, result: { thread: { id: "thread-1" } } });
+    await new Promise((resolve) => setImmediate(resolve));
+    const statusRequest = writes.find((item) => item.method === "mcpServerStatus/list");
+    assert.ok(statusRequest);
+    testClient.handleNotification("mcpServer/startupStatus/updated", { threadId: "thread-1", name: "notion", status: "failed" });
+    testClient.handle({ id: statusRequest.id, result: { data: [{ name: "notion", authStatus: "notLoggedIn", tools: [], resources: [], resourceTemplates: [] }], nextCursor: null } });
+    await starting;
+
+    const running = client.startTurn("thread-1", "test", [], "request");
+    const turnRequest = writes.find((item) => item.method === "turn/start");
+    assert.ok(turnRequest);
+    testClient.handleNotification("mcpServer/startupStatus/updated", { threadId: "thread-1", name: "notion", status: "ready" });
+    testClient.handle({ id: turnRequest.id, result: { turn: { id: "turn-1" } } });
+    testClient.handleNotification("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
+    await running;
+
+    assert.deepEqual(events.filter((event) => event.type === "agent_bootstrap"), [
+        { type: "agent_bootstrap", payload: { type: "mcp.startup", phase: "preheat", threadId: "thread-1", name: "notion", status: "starting", error: undefined, failureReason: undefined } },
+        { type: "agent_bootstrap", payload: { type: "mcp.startup", phase: "preheat", threadId: "thread-1", name: "notion", status: "failed", error: undefined, failureReason: undefined } },
+        { type: "agent_bootstrap", payload: { type: "mcp.complete", phase: "preheat", threadId: "thread-1", services: [{ name: "notion", authStatus: "notLoggedIn" }] } },
+        { type: "agent_bootstrap", payload: { type: "mcp.startup", phase: "runtime", threadId: "thread-1", name: "notion", status: "ready", error: undefined, failureReason: undefined } },
+    ]);
+});
+
 test("静默 Skill 草稿 turn 只返回结构化结果，不广播也不写历史", async () => {
     const writes: Array<Record<string, unknown>> = [];
     const events: Array<{ type: string; payload: unknown }> = [];

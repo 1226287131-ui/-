@@ -23,6 +23,15 @@ export type AgentCanvasContext = { snapshot: CanvasAgentSnapshot; applyOps: (ops
 export type AgentThreadSummary = { id: string; preview: string; name?: string | null; cwd?: string; status?: string; source?: unknown; createdAt?: number; updatedAt?: number };
 export type AgentTokenUsage = { input: number; cached: number; output: number };
 export type AgentBootstrapStatus = { key: string; text: string; detail: string; status: "running" | "ready" | "error" };
+export type AgentConversationState = {
+    revision: number;
+    conversationId: string;
+    threadId: string;
+    status: "idle" | "preparing" | "ready" | "warning" | "running" | "failed";
+    mcpStatuses: Record<string, { status: "starting" | "ready" | "failed" | "cancelled"; error?: string | null; failureReason?: string | null }>;
+    sourceClientId?: string;
+    error?: string;
+};
 export type AgentPanelTab = "chat" | "setup" | "history" | "skills" | "log";
 
 const CONNECT_TIMEOUT_MS = 6000;
@@ -59,6 +68,7 @@ type AgentStore = {
     model: string;
     reasoningEffort: AgentReasoningEffort | "";
     activity: string;
+    conversation: AgentConversationState;
     bootstrapStatus: AgentBootstrapStatus | null;
     mcpStartupStatuses: Record<string, AgentBootstrapStatus>;
     connectError: string;
@@ -108,6 +118,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     model: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-model") || "",
     reasoningEffort: typeof window === "undefined" ? "" : (localStorage.getItem("canvas-agent-reasoning-effort") as AgentReasoningEffort) || "",
     activity: "就绪",
+    conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} },
     bootstrapStatus: null,
     mcpStartupStatuses: {},
     connectError: "",
@@ -145,7 +156,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         agentSource = null;
         if (connectTimer) clearTimeout(connectTimer);
         connectTimer = null;
-        set({ enabled: false, connected: false, silentConnect: false, activity: "离线", bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
+        set({ enabled: false, connected: false, silentConnect: false, activity: "离线", conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} }, bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
     },
     addMessage: (item) => set((state) => ({ messages: [...state.messages, item] })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),
