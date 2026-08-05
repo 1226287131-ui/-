@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { ModelPicker } from "@/components/model-picker";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
-import { changeAppLocale, type AppLocale } from "@/i18n";
+import type { AppLocale } from "@/i18n";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
@@ -215,17 +215,6 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                         label: t("config.tabs.preferences"),
                         children: (
                             <Form layout="vertical" requiredMark={false}>
-                                <div className="mb-2 text-sm font-semibold">{t("config.preferences.interface")}</div>
-                                <Form.Item label={t("config.preferences.language")} extra={t("config.preferences.languageDescription")} className="mb-4 max-w-sm">
-                                    <Select
-                                        value={locale}
-                                        options={[
-                                            { label: t("locale.zhCN"), value: "zh-CN" },
-                                            { label: t("locale.enUS"), value: "en-US" },
-                                        ]}
-                                        onChange={(value: AppLocale) => void changeAppLocale(value)}
-                                    />
-                                </Form.Item>
                                 <div className="mb-2 text-sm font-semibold">{t("config.preferences.defaultModels")}</div>
                                 <div className="mb-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                     {modelGroups.map((group) => (

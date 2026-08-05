@@ -258,6 +258,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                     </div>
                 ),
             },
+        ],
         onClick: ({ key }) => {
             if (key === "manual") {
                 setDraft(null);
