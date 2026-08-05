@@ -11,6 +11,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { useTranslation } from "react-i18next";
 
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const selectionBlue = "#2f80ff";
@@ -120,6 +121,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onContextMenu,
 }: CanvasNodeProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const { t } = useTranslation();
     const [hovered, setHovered] = useState(false);
     const definition = getNodeDefinition(data.type);
     const pluginContext = useMemo<CanvasNodeContext | null>(() => (pluginHost ? buildNodeContext(pluginHost, data, theme, scale, isSelected) : null), [pluginHost, data, theme, scale, isSelected]);
@@ -167,11 +169,11 @@ export const CanvasNode = React.memo(function CanvasNode({
     }, [isEditingTitle]);
 
     const finishTitleEditing = useCallback(() => {
-        const title = titleDraft.trim() || data.title || "未命名节点";
+        const title = titleDraft.trim() || data.title || t("canvas.node.untitled");
         setTitleDraft(title);
         setIsEditingTitle(false);
         if (title !== data.title) onTitleChange(data.id, title);
-    }, [data.id, data.title, onTitleChange, titleDraft]);
+    }, [data.id, data.title, onTitleChange, t, titleDraft]);
 
     useEffect(() => {
         if (!isEditingTitle) return;
@@ -342,13 +344,13 @@ export const CanvasNode = React.memo(function CanvasNode({
                             type="button"
                             className="block max-w-full truncate border-b border-dashed border-transparent px-0 py-0.5 text-left text-xs font-medium opacity-75 transition hover:border-current hover:opacity-100"
                             style={{ color: theme.node.text }}
-                            title="双击修改节点名称"
+                            title={t("canvas.node.renameHint")}
                             onDoubleClick={(event) => {
                                 event.stopPropagation();
                                 setIsEditingTitle(true);
                             }}
                         >
-                            {data.title || "未命名节点"}
+                            {data.title || t("canvas.node.untitled")}
                         </button>
                     )}
                 </div>
@@ -466,15 +468,16 @@ const nodeContentRenderers = {
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
 function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererProps) {
+    const { t } = useTranslation();
     return (
         <div className="pointer-events-none flex h-full w-full flex-col p-4">
             <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: theme.node.text }}>
                 <span className="grid size-8 place-items-center rounded-xl" style={{ background: theme.toolbar.activeBg, color: theme.node.muted }}>
                     <Group className="size-4" />
                 </span>
-                <span>组</span>
+                <span>{t("canvas.node.group")}</span>
                 <span className="ml-auto rounded-full px-2 py-1 text-[11px] font-medium" style={{ background: theme.node.fill, color: theme.node.muted }}>
-                    {groupChildCount} 个节点
+                    {t("canvas.node.nodeCount", { count: groupChildCount })}
                 </span>
             </div>
             <div className="mt-3 flex-1 rounded-2xl border border-dashed" style={{ borderColor: theme.node.stroke, background: `${theme.node.fill}55` }} />
@@ -483,18 +486,20 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
 }
 
 function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+    const { t } = useTranslation();
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="text-[10px] tracking-[0.2em]">生成中</span>
+            <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
         </div>
     );
 }
 
 function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
+    const { t } = useTranslation();
     return (
         <div className="flex max-w-[260px] flex-col items-center gap-3 px-5 text-center">
-            <div className="text-xs leading-5 text-red-300">{node.metadata?.errorDetails || "生成失败"}</div>
+            <div className="text-xs leading-5 text-red-300">{node.metadata?.errorDetails || t("canvas.node.failed")}</div>
             <button
                 type="button"
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
@@ -506,23 +511,25 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 <RefreshCw className="size-3.5" />
-                重试
+                {t("canvas.node.retry")}
             </button>
         </div>
     );
 }
 
 function MissingPluginContent({ theme, type }: Pick<NodeContentRendererProps, "theme"> & { type: string }) {
+    const { t } = useTranslation();
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center" style={{ color: theme.node.placeholder }}>
             <Puzzle className="size-7 opacity-40" />
-            <span className="text-sm">缺少插件</span>
-            <span className="text-[11px] opacity-70">节点类型 “{type}” 的插件未安装或未启用</span>
+            <span className="text-sm">{t("canvas.node.missingPlugin")}</span>
+            <span className="text-[11px] opacity-70">{t("canvas.node.missingPluginDescription", { type })}</span>
         </div>
     );
 }
 
 function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
+    const { t } = useTranslation();
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
 
@@ -538,11 +545,11 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                 }}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
-                title="用文本生图"
-                aria-label="用文本生图"
+                title={t("canvas.node.generateImage")}
+                aria-label={t("canvas.node.generateImage")}
             >
                 <ImageIcon className="size-3.5" />
-                生图
+                {t("canvas.node.generate")}
             </button>
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
@@ -567,7 +574,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
                     style={textStyle}
                     onWheel={(event) => event.stopPropagation()}
                 >
-                    {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>双击编辑文字</span>}
+                    {node.metadata?.content || <span style={{ color: theme.node.placeholder }}>{t("canvas.node.editText")}</span>}
                 </div>
             )}
         </div>
@@ -607,12 +614,13 @@ function ImageNodeContent(props: NodeContentRendererProps) {
 }
 
 function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batchOpening, batchRecovering, onToggleBatch }: NodeContentRendererProps) {
+    const { t } = useTranslation();
     const content = (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
             <div className="flex size-14 items-center justify-center rounded-2xl" style={{ background: theme.toolbar.activeBg }}>
                 <ImageIcon className="size-6 opacity-30" />
             </div>
-            <span className="text-[10px] tracking-[0.18em] opacity-50">空图片节点</span>
+            <span className="text-[10px] tracking-[0.18em] opacity-50">{t("canvas.node.emptyImage")}</span>
         </div>
     );
     if (isBatchRoot)
@@ -625,29 +633,31 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
 }
 
 function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
+    const { t } = useTranslation();
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
                 <Video className="size-7 opacity-35" />
-                <span className="text-sm">空视频节点</span>
+                <span className="text-sm">{t("canvas.node.emptyVideo")}</span>
             </div>
         );
     return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
+    const { t } = useTranslation();
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ color: theme.node.placeholder }}>
                 <Music2 className="size-7 opacity-35" />
-                <span className="text-sm">空音频节点</span>
+                <span className="text-sm">{t("canvas.node.emptyAudio")}</span>
             </div>
         );
     return (
         <div className="flex h-full w-full flex-col justify-center gap-3 px-4" style={{ background: theme.node.fill, color: theme.node.text }}>
             <div className="flex min-w-0 items-center gap-2 text-sm opacity-70">
                 <Music2 className="size-4 shrink-0" />
-                <span className="truncate">音频</span>
+                <span className="truncate">{t("canvas.node.audio")}</span>
             </div>
             <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
         </div>
@@ -674,6 +684,7 @@ function ImageContent({
     onSetBatchPrimary?: () => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const { t } = useTranslation();
     const isBatchChild = Boolean(node.metadata?.batchRootId);
 
     return (
@@ -692,7 +703,7 @@ function ImageContent({
                     type="button"
                     className="absolute right-2.5 top-2.5 z-30 flex h-8 items-center justify-center gap-1 rounded-full border px-2.5 text-xs font-semibold shadow-[0_6px_18px_rgba(15,23,42,.10)] backdrop-blur-md transition hover:scale-[1.02]"
                     style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }}
-                    aria-label={batchExpanded ? "图片组已展开" : "图片组已收起"}
+                    aria-label={batchExpanded ? t("canvas.node.batchExpanded") : t("canvas.node.batchCollapsed")}
                     onClick={(event) => {
                         event.stopPropagation();
                         onToggleBatch?.();
@@ -717,7 +728,7 @@ function ImageContent({
                     onPointerDown={(event) => event.stopPropagation()}
                 >
                     <Star className="size-3.5 text-[#2f80ff]" />
-                    设为主图
+                    {t("canvas.node.setPrimary")}
                 </button>
             ) : null}
         </BatchFrame>

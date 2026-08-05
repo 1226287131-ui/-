@@ -1,4 +1,5 @@
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
+import i18n from "@/i18n";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
@@ -76,7 +77,7 @@ function labelForKind(kind: CanvasResourceKind, index: number) {
     if (kind === "image") return imageReferenceLabel(index);
     if (kind === "video") return seedanceReferenceLabel("video", index);
     if (kind === "audio") return seedanceReferenceLabel("audio", index);
-    return `文本${index + 1}`;
+    return i18n.t("canvas.composer.resources.text", { index: index + 1 });
 }
 
 function isResourceNode(node: CanvasNodeData) {

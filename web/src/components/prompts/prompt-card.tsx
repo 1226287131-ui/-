@@ -1,6 +1,7 @@
 import { Copy, FileText } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button, Card, Tag } from "antd";
+import { useTranslation } from "react-i18next";
 
 import { formatPromptDate, type Prompt } from "@/services/api/prompts";
 
@@ -8,7 +9,7 @@ export function PromptCard({
     item,
     onOpen,
     onCopy,
-    actionLabel = "复制",
+    actionLabel,
     actionIcon = <Copy className="size-3.5" />,
     actionType = "text",
     extraAction,
@@ -21,6 +22,7 @@ export function PromptCard({
     actionType?: "text" | "primary";
     extraAction?: ReactNode;
 }) {
+    const { i18n, t } = useTranslation();
     return (
         <Card
             hoverable
@@ -36,7 +38,7 @@ export function PromptCard({
                 <div className="p-4">
                     <div className="flex items-start justify-between gap-3">
                         <h2 className="line-clamp-1 text-sm font-semibold text-stone-950 dark:text-stone-100">{item.title}</h2>
-                        <span className="shrink-0 text-xs text-stone-400 dark:text-stone-500">{formatPromptDate(item.updatedAt)}</span>
+                        <span className="shrink-0 text-xs text-stone-400 dark:text-stone-500">{formatPromptDate(item.updatedAt, i18n.resolvedLanguage)}</span>
                     </div>
                     <p className="mt-2 line-clamp-3 text-xs leading-5 text-stone-600 dark:text-stone-400">{item.description || item.prompt}</p>
                     <div className="mt-3 flex flex-wrap gap-1.5">
@@ -50,7 +52,7 @@ export function PromptCard({
             </button>
             <div className="flex items-center gap-2 px-4 pb-4">
                 <Button block={actionType === "primary"} type={actionType} size="small" icon={actionIcon} onClick={onCopy}>
-                    {actionLabel}
+                    {actionLabel || t("common.copy")}
                 </Button>
                 {extraAction}
             </div>

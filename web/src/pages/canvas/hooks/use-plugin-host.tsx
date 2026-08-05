@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion, type AiTextMessage } from "@/services/api/image";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
@@ -33,6 +34,7 @@ type PluginHostParams = {
  * 并在挂载时加载已安装的远程插件。返回给画布用于渲染插件面板与工具条。
  */
 export function usePluginHost(params: PluginHostParams) {
+    const { t } = useTranslation();
     const { effectiveConfig, isAiConfigReady, openConfigDialog, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
 
     // 提供给插件节点的宿主能力(节点无关,方法接收 nodeId)
@@ -43,7 +45,7 @@ export function usePluginHost(params: PluginHostParams) {
         const ensureReady = (config: AiConfig) => {
             if (!isAiConfigReady(config, config.model)) {
                 openConfigDialog(true);
-                throw new Error("AI 配置未就绪,请先在设置里配置模型与密钥");
+                throw new Error(t("canvas.plugins.aiConfigRequired"));
             }
         };
         return {
@@ -76,7 +78,7 @@ export function usePluginHost(params: PluginHostParams) {
             listModels: (capability) => selectableModelsByCapability(effectiveConfig, capability as ModelCapability | undefined).map((value) => ({ value, label: decodeChannelModel(value)?.model || value })),
             defaultModel: (capability) => buildGenerationConfig(effectiveConfig, undefined, capability).model,
         };
-    }, [effectiveConfig, isAiConfigReady, openConfigDialog]);
+    }, [effectiveConfig, isAiConfigReady, openConfigDialog, t]);
 
     const pluginHost = useMemo<CanvasPluginHost>(
         () => ({
@@ -124,15 +126,15 @@ export function usePluginHost(params: PluginHostParams) {
             const interactive = Boolean(node.metadata?.interactive);
             const toggle: CanvasNodeToolbarItem = {
                 id: "node-interaction-toggle",
-                title: interactive ? "当前:交互中。点击切回「移动」——拖动可移动节点" : "当前:可移动。点击切到「交互」——可操作节点内容(如转动全景)",
-                label: interactive ? "移动" : "交互",
+                title: t(interactive ? "canvas.plugins.interactiveTitle" : "canvas.plugins.movableTitle"),
+                label: t(interactive ? "canvas.plugins.move" : "canvas.plugins.interact"),
                 icon: interactive ? "✋" : "🖐",
                 active: interactive,
                 onClick: () => pluginHost.updateMetadata(node.id, { interactive: !interactive }),
             };
             return [toggle, ...custom];
         },
-        [pluginHost, theme],
+        [pluginHost, t, theme],
     );
 
     // 启动时加载已安装的远程插件

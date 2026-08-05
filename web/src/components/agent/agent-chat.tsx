@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useSpring, useTransform } from "motion/react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
@@ -30,6 +31,7 @@ export function AgentChatTimeline({
     onApproveTool: () => void;
     onApprovalDecision: (approval: AgentPendingApproval, decision: "accept" | "acceptForSession" | "decline") => void;
 }) {
+    const { t } = useTranslation();
     const messages = useAgentStore((state) => state.messages);
     const bootstrapStatus = useAgentStore((state) => state.bootstrapStatus);
     const mcpStartupStatuses = useAgentStore((state) => state.mcpStartupStatuses);
@@ -94,18 +96,19 @@ export function AgentChatTimeline({
                 </div>
             </div>
             {showScrollToBottom ? (
-                <AgentScrollToBottom theme={theme} title="查看最新消息" onClick={() => scrollToBottom()} />
+                <AgentScrollToBottom theme={theme} title={t("agent.chat.latestMessages")} onClick={() => scrollToBottom()} />
             ) : null}
         </div>
     );
 }
 
 export function AgentTaskProgress({ theme, busy }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; busy: boolean }) {
+    const { t } = useTranslation();
     const plan = useAgentStore((state) => busy ? currentPlanMessage(state.messages) : latestPlanMessage(state.messages));
     if (!plan) return null;
     return (
         <div className="shrink-0 px-4 pt-2">
-            <AgentToolCard key={plan.id} title={plan.title || "任务进度"} text={plan.text} detail={plan.detail} theme={theme} />
+            <AgentToolCard key={plan.id} title={plan.title || t("agent.events.progress")} text={plan.text} detail={plan.detail} theme={theme} />
         </div>
     );
 }
@@ -159,12 +162,13 @@ function isCommandMessage(item: AgentChatItem) {
 }
 
 export function AgentUsageBar({ usage, theme }: { usage: AgentTokenUsage; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation();
     return (
         <div className="flex items-center justify-center gap-4 px-4 pt-1 text-[11px] tabular-nums" style={{ color: theme.node.muted }}>
-            <span className="opacity-70">最新调用</span>
-            <UsageNumber label="输入" value={usage.input} color={theme.node.text} />
-            <UsageNumber label="缓存" value={usage.cached} color={theme.node.text} />
-            <UsageNumber label="输出" value={usage.output} color={theme.node.text} />
+            <span className="opacity-70">{t("agent.chat.latestCall")}</span>
+            <UsageNumber label={t("agent.chat.input")} value={usage.input} color={theme.node.text} />
+            <UsageNumber label={t("agent.chat.cached")} value={usage.cached} color={theme.node.text} />
+            <UsageNumber label={t("agent.chat.output")} value={usage.output} color={theme.node.text} />
         </div>
     );
 }

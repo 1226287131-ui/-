@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 
+import i18n from "@/i18n";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
@@ -36,7 +37,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
         params;
     const setAgentCanvasContext = useAgentStore((state) => state.setCanvasContext);
     const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
-    const projectTitle = title || "未命名画布";
+    const projectTitle = title || i18n.t("canvas.project.untitled");
 
     const agentSnapshot = useMemo<CanvasAgentSnapshot>(() => ({ projectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }), [connections, projectTitle, nodes, projectId, selectedNodeIds, viewport]);
     const applyAgentOps = useCallback(

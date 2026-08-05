@@ -3,6 +3,7 @@ import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, Mous
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
+import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
@@ -124,13 +125,6 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
-const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
-
-要求：
-1. 只输出提示词正文，不要解释。
-2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
-3. 尽量写成可直接用于生图模型的完整提示词。`;
-
 export default function CanvasPage() {
     const [mounted, setMounted] = useState(false);
 
@@ -145,6 +139,7 @@ export default function CanvasPage() {
 
 function InfiniteCanvasPage() {
     const { message, modal } = App.useApp();
+    const { t } = useTranslation();
     // 订阅节点注册表版本,插件动态注册/卸载后驱动画布重渲染
     const nodeRegistryVersion = useNodeRegistryVersion((state) => state.version);
     const params = useParams<{ id: string }>();
@@ -304,15 +299,15 @@ function InfiniteCanvasPage() {
     const confirmStopGeneration = useCallback(
         (nodeId: string) => {
             modal.confirm({
-                title: "停止生成？",
-                content: "当前生成请求会被中断，已经生成完成的内容会保留。",
-                okText: "停止",
-                cancelText: "继续生成",
+                title: t("canvas.projectPage.stopTitle"),
+                content: t("canvas.projectPage.stopDescription"),
+                okText: t("canvas.projectPage.stop"),
+                cancelText: t("canvas.projectPage.continue"),
                 okButtonProps: { danger: true },
                 onOk: () => stopGenerationByRunningId(nodeId),
             });
         },
-        [modal, stopGenerationByRunningId],
+        [modal, stopGenerationByRunningId, t],
     );
 
     useEffect(() => {
@@ -488,7 +483,7 @@ function InfiniteCanvasPage() {
 
             const connection = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
             if (!connection) {
-                message.warning("配置节点之间不能连接");
+                message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
             const { fromNodeId, toNodeId } = connection;
@@ -498,7 +493,7 @@ function InfiniteCanvasPage() {
             }
             setContextMenu(null);
         },
-        [message],
+        [message, t],
     );
 
     const createConnectedNode = useCallback(
@@ -507,7 +502,7 @@ function InfiniteCanvasPage() {
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
             if (!connection) {
-                message.warning("配置节点之间不能连接");
+                message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
             setNodes((prev) => [...prev, newNode]);
@@ -518,7 +513,7 @@ function InfiniteCanvasPage() {
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message, setConnecting],
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message, setConnecting, t],
     );
 
     const cancelPendingConnectionCreate = useCallback(() => {
@@ -980,9 +975,9 @@ function InfiniteCanvasPage() {
     }, [applyHistory]);
 
     const createAndOpenProject = useCallback(() => {
-        const id = createProject(`无限画布 ${useCanvasStore.getState().projects.length + 1}`);
+        const id = createProject(t("canvas.defaultTitle", { count: useCanvasStore.getState().projects.length + 1 }));
         navigate(`/canvas/${id}`);
-    }, [createProject, navigate]);
+    }, [createProject, navigate, t]);
 
     const deleteCurrentProject = useCallback(() => {
         deleteProjects([projectId]);
@@ -992,18 +987,18 @@ function InfiniteCanvasPage() {
 
     const exportCurrentProject = useCallback(async () => {
         const project = useCanvasStore.getState().projects.find((item) => item.id === projectId);
-        if (!project) return message.error("未找到当前画布");
-        const hide = message.loading("正在导出当前画布…", 0);
+        if (!project) return message.error(t("canvas.projectPage.notFound"));
+        const hide = message.loading(t("canvas.projectPage.exporting"), 0);
         try {
-            await exportCanvasProjects([project], project.title || "无限画布");
-            message.success("已导出当前画布");
+            await exportCanvasProjects([project], project.title || t("canvas.title"));
+            message.success(t("canvas.projectPage.exported"));
         } catch (error) {
             console.error(error);
-            message.error("导出失败，请重试");
+            message.error(t("canvas.sidePanel.exportFailed"));
         } finally {
             hide();
         }
-    }, [message, projectId]);
+    }, [message, projectId, t]);
 
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1342,7 +1337,7 @@ function InfiniteCanvasPage() {
 
             const node = {
                 ...createCanvasNode(CanvasNodeType.Text, getCanvasCenter(), { content: trimmed, status: NODE_STATUS_SUCCESS }),
-                title: trimmed.slice(0, 32) || "剪切板文本",
+                title: trimmed.slice(0, 32) || t("canvas.projectPage.clipboardText"),
             };
 
             setNodes((prev) => [...prev, node]);
@@ -1352,7 +1347,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId(node.id);
             return true;
         },
-        [getCanvasCenter],
+        [getCanvasCenter, t],
     );
 
     const pasteSystemClipboard = useCallback(async () => {
@@ -1366,13 +1361,13 @@ function InfiniteCanvasPage() {
             const blob = await imageItem.getType(imageType);
             const file = new File([blob], "clipboard-image.png", { type: imageType });
             void createImageFileNode(file, getCanvasCenter());
-            message.success("已从剪切板添加图片");
+            message.success(t("canvas.projectPage.clipboardImageAdded"));
             return;
         }
 
         const text = await navigator.clipboard.readText();
-        if (createTextNodeFromClipboard(text)) message.success("已从剪切板添加文本");
-    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message]);
+        if (createTextNodeFromClipboard(text)) message.success(t("canvas.projectPage.clipboardTextAdded"));
+    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, t]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -1567,30 +1562,30 @@ function InfiniteCanvasPage() {
         async (node: CanvasNodeData) => {
             if (node.type === CanvasNodeType.Text) {
                 const content = node.metadata?.content?.trim();
-                if (!content) return message.error("没有可保存的文本");
-                addAsset({ kind: "text", title: node.metadata?.prompt?.slice(0, 24) || "画布文本", coverUrl: "", tags: [], source: "Canvas", data: { content }, metadata: { source: "canvas", nodeId: node.id } });
-                message.success("已加入我的资产");
+                if (!content) return message.error(t("canvas.projectPage.noTextToSave"));
+                addAsset({ kind: "text", title: node.metadata?.prompt?.slice(0, 24) || t("canvas.projectPage.canvasText"), coverUrl: "", tags: [], source: "Canvas", data: { content }, metadata: { source: "canvas", nodeId: node.id } });
+                message.success(t("common.addedToAssets"));
                 return;
             }
             if (node.type === CanvasNodeType.Video) {
-                if (!node.metadata?.content) return message.error("没有可保存的视频");
+                if (!node.metadata?.content) return message.error(t("canvas.projectPage.noVideoToSave"));
                 addAsset({
                     kind: "video",
-                    title: node.metadata?.prompt?.slice(0, 24) || "画布视频",
+                    title: node.metadata?.prompt?.slice(0, 24) || t("canvas.projectPage.canvasVideo"),
                     coverUrl: "",
                     tags: [],
                     source: "Canvas",
                     data: { url: node.metadata.content, storageKey: node.metadata.storageKey, width: node.width, height: node.height, bytes: node.metadata.bytes || 0, mimeType: node.metadata.mimeType || "video/mp4" },
                     metadata: { source: "canvas", nodeId: node.id, prompt: node.metadata?.prompt },
                 });
-                message.success("已加入我的资产");
+                message.success(t("common.addedToAssets"));
                 return;
             }
-            if (!node.metadata?.content) return message.error("没有可保存的图片");
+            if (!node.metadata?.content) return message.error(t("canvas.projectPage.noImageToSave"));
             const dataUrl = node.metadata.storageKey ? "" : node.metadata.content;
             addAsset({
                 kind: "image",
-                title: node.metadata?.prompt?.slice(0, 24) || "画布图片",
+                title: node.metadata?.prompt?.slice(0, 24) || t("canvas.projectPage.canvasImage"),
                 coverUrl: node.metadata.content,
                 tags: [],
                 source: "Canvas",
@@ -1604,15 +1599,15 @@ function InfiniteCanvasPage() {
                 },
                 metadata: { source: "canvas", nodeId: node.id, prompt: node.metadata?.prompt },
             });
-            message.success("已加入我的资产");
+            message.success(t("common.addedToAssets"));
         },
-        [addAsset, message],
+        [addAsset, message, t],
     );
 
     const createImageReversePromptNodes = useCallback(
         (node: CanvasNodeData) => {
             if (node.type !== CanvasNodeType.Image || !node.metadata?.content) {
-                message.warning("图片节点为空，无法反推提示词");
+                message.warning(t("canvas.projectPage.emptyReverse"));
                 return;
             }
 
@@ -1621,8 +1616,8 @@ function InfiniteCanvasPage() {
             const configSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Config];
             const centerY = node.position.y + node.height / 2;
             const textNode = {
-                ...createCanvasNode(CanvasNodeType.Text, { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY }, { content: IMAGE_PROMPT_REVERSE_PRESET, prompt: IMAGE_PROMPT_REVERSE_PRESET, status: NODE_STATUS_SUCCESS, fontSize: 14 }),
-                title: "反推提示词",
+                ...createCanvasNode(CanvasNodeType.Text, { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY }, { content: t("canvas.projectPage.reversePreset"), prompt: t("canvas.projectPage.reversePreset"), status: NODE_STATUS_SUCCESS, fontSize: 14 }),
+                title: t("canvas.projectPage.reverseTitle"),
             };
             const configNode = {
                 ...createCanvasNode(
@@ -1632,10 +1627,10 @@ function InfiniteCanvasPage() {
                         generationMode: "text",
                         model: effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
                         count: 1,
-                        composerContent: `参考图片：@[node:${node.id}]\n任务说明：@[node:${textNode.id}]`,
+                        composerContent: t("canvas.reverseComposer", { imageId: node.id, textId: textNode.id }),
                     },
                 ),
-                title: "反推提示词配置",
+                title: t("canvas.projectPage.reverseConfigTitle"),
             };
 
             setNodes((prev) => [...prev, textNode, configNode]);
@@ -1645,7 +1640,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId(configNode.id);
             setContextMenu(null);
         },
-        [effectiveConfig.model, effectiveConfig.textModel, message],
+        [effectiveConfig.model, effectiveConfig.textModel, message, t],
     );
 
     const cropImageNode = useCallback(async (node: CanvasNodeData, crop: CanvasImageCropRect) => {
@@ -1690,7 +1685,7 @@ function InfiniteCanvasPage() {
                     return {
                         id,
                         type: CanvasNodeType.Image,
-                        title: `${node.title || "图片"} ${piece.row + 1}-${piece.column + 1}`,
+                        title: t("canvas.projectPage.splitTitle", { name: node.title || t("assets.kinds.image"), row: piece.row + 1, column: piece.column + 1 }),
                         position: { x: startX + piece.column * (cellWidth + gap), y: startY + piece.row * (cellHeight + gap) },
                         width: cellWidth,
                         height: cellHeight,
@@ -1706,9 +1701,9 @@ function InfiniteCanvasPage() {
             setSelectedNodeIds(new Set(childNodes.map((child) => child.id)));
             setSelectedConnectionId(null);
             setDialogNodeId(null);
-            message.success(`已切分为 ${childNodes.length} 个子节点`);
+            message.success(t("canvas.projectPage.splitSuccess", { count: childNodes.length }));
         },
-        [message],
+        [message, t],
     );
 
     const maskEditImageNode = useCallback(
@@ -1720,7 +1715,7 @@ function InfiniteCanvasPage() {
                 return;
             }
             const userPrompt = payload.prompt.trim();
-            const prompt = `只修改蒙版透明区域，其他区域保持不变。${userPrompt}`;
+            const prompt = t("canvas.projectPage.maskPrompt", { prompt: userPrompt });
             const childId = nanoid();
             const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
             const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
@@ -1731,7 +1726,7 @@ function InfiniteCanvasPage() {
                 {
                     id: childId,
                     type: CanvasNodeType.Image,
-                    title: userPrompt.slice(0, 32) || "局部编辑结果",
+                    title: userPrompt.slice(0, 32) || t("canvas.projectPage.maskResult"),
                     position: { x: node.position.x + node.width + 96, y: node.position.y },
                     width: node.width,
                     height: node.height,
@@ -1750,7 +1745,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "局部修改失败";
+                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.maskFailed");
                 message.error(errorDetails);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
             } finally {
@@ -1758,7 +1753,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
     );
 
     const upscaleImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageUpscaleParams) => {
@@ -1832,14 +1827,14 @@ function InfiniteCanvasPage() {
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
             } finally {
                 finishGenerationRequest(childId, controller);
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, finishGenerationRequest, openConfigDialog, startGenerationRequest, t],
     );
 
     const handleFontSizeChange = useCallback((nodeId: string, fontSize: number) => {
@@ -2013,9 +2008,9 @@ function InfiniteCanvasPage() {
     );
 
     const startTitleEditing = useCallback(() => {
-        setTitleDraft(currentProject?.title || "未命名画布");
+        setTitleDraft(currentProject?.title || t("canvas.projectPage.untitledCanvas"));
         setTitleEditing(true);
-    }, [currentProject?.title]);
+    }, [currentProject?.title, t]);
 
     const finishTitleEditing = useCallback(() => {
         const nextTitle = titleDraft.trim();
@@ -2069,7 +2064,7 @@ function InfiniteCanvasPage() {
                     setDialogNodeId(null);
                 } catch (error) {
                     if (!isGenerationCanceled(error)) {
-                        const errorDetails = error instanceof Error ? error.message : "生成失败";
+                        const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
                         message.error(errorDetails);
                         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
                     }
@@ -2084,7 +2079,7 @@ function InfiniteCanvasPage() {
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
             const generationContext = await hydrateNodeGenerationContext(
-                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt),
+                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt }) : prompt),
             );
             const effectivePrompt = generationContext.prompt.trim();
             if (runController.signal.aborted) {
@@ -2240,7 +2235,7 @@ function InfiniteCanvasPage() {
                                 return true;
                             } catch (error) {
                                 if (isGenerationCanceled(error)) return false;
-                                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
                                 if (!firstError) firstError = errorDetails;
                                 hasFailure = true;
                                 setNodes((prev) => prev.map((node) => (node.id === targetId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
@@ -2256,16 +2251,16 @@ function InfiniteCanvasPage() {
                         return;
                     }
                     if (hasFailure) {
-                        message.error(hasSuccess ? "部分图片生成失败" : firstError || "生成失败");
+                        message.error(hasSuccess ? t("canvas.projectPage.partialFailed") : firstError || t("canvas.projectPage.generationFailed"));
                     }
                     setNodes((prev) =>
                         prev.map((node) =>
                             node.id === nodeId && isConfigNode
-                                ? { ...node, metadata: { ...node.metadata, status: hasSuccess ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: hasSuccess ? undefined : "生成失败" } }
+                                ? { ...node, metadata: { ...node.metadata, status: hasSuccess ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: hasSuccess ? undefined : t("canvas.projectPage.generationFailed") } }
                                 : node.id === nodeId && isEmptyImageNode
-                                  ? { ...node, metadata: { ...node.metadata, status: hasSuccess ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: hasSuccess ? undefined : "生成失败" } }
+                                  ? { ...node, metadata: { ...node.metadata, status: hasSuccess ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: hasSuccess ? undefined : t("canvas.projectPage.generationFailed") } }
                                   : node.id === rootId && !hasSuccess && !targetIds.includes(node.id)
-                                    ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: "全部图片生成失败" } }
+                                    ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: t("canvas.projectPage.allFailed") } }
                                     : node,
                         ),
                     );
@@ -2436,7 +2431,7 @@ function InfiniteCanvasPage() {
                 );
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
                 message.error(errorDetails);
                 setNodes((prev) =>
                     prev.map((node) => (node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } }) : node)),
@@ -2446,7 +2441,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
     );
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
@@ -2477,7 +2472,7 @@ function InfiniteCanvasPage() {
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             if (!prompt) {
-                message.warning("找不到提示词，无法重试");
+                message.warning(t("canvas.projectPage.retryPromptMissing"));
                 return;
             }
             const generationType = savedImageMetadata?.generationType;
@@ -2485,8 +2480,8 @@ function InfiniteCanvasPage() {
             const retryReferenceImages =
                 hasSavedImageMetadata && savedImageMetadata ? await resolveMetadataReferences(savedImageMetadata) : useReferenceImages ? (context?.referenceImages.length ? context.referenceImages : sourceNodeReferenceImages(batchRoot || sourceNode)) : [];
             if (useReferenceImages && !retryReferenceImages) {
-                message.error("参考图片已丢失，无法继续重试");
-                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: "参考图片已丢失，无法继续重试" } } : item)));
+                message.error(t("canvas.projectPage.referenceMissing"));
+                setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: t("canvas.projectPage.referenceMissing") } } : item)));
                 return;
             }
             const retryImages = retryReferenceImages || [];
@@ -2577,7 +2572,7 @@ function InfiniteCanvasPage() {
                 );
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.generationFailed");
                 message.error(errorDetails);
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
             } finally {
@@ -2585,14 +2580,14 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
     );
 
     const generateImageFromTextNode = useCallback(
         (node: CanvasNodeData) => {
             const prompt = (node.metadata?.content || node.metadata?.prompt || "").trim();
             if (!prompt) {
-                message.warning("文本节点为空，无法生图");
+                message.warning(t("canvas.projectPage.emptyTextImage"));
                 return;
             }
             const sourceNode = nodesRef.current.find((item) => item.id === node.id);
@@ -2622,7 +2617,7 @@ function InfiniteCanvasPage() {
             setSelectedConnectionId(null);
             setDialogNodeId(configNode.id);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message],
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message, t],
     );
 
     const insertAssistantImage = useCallback(
@@ -2769,7 +2764,7 @@ function InfiniteCanvasPage() {
             <CanvasSidePanel nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={focusNode} onPreviewNode={setPreviewNodeId} onInsertAsset={handleAssetInsert} />
             <section className="relative min-w-0 flex-1 overflow-hidden">
                 <CanvasTopBar
-                    title={currentProject?.title || "未命名画布"}
+                    title={currentProject?.title || t("canvas.projectPage.untitledCanvas")}
                     titleDraft={titleDraft}
                     isTitleEditing={titleEditing}
                     onTitleDraftChange={setTitleDraft}
@@ -3007,14 +3002,14 @@ function InfiniteCanvasPage() {
                     <CanvasNodeUpscaleDialog dataUrl={upscaleNode.metadata.content} open={Boolean(upscaleNode)} onClose={() => setUpscaleNodeId(null)} onConfirm={(params) => void upscaleImageNode(upscaleNode!, params)} />
                 ) : null}
 
-                <Modal title="AI 超分" open={Boolean(superResolveNode?.metadata?.content)} centered footer={null} onCancel={() => setSuperResolveNodeId(null)}>
-                    <div className="py-8 text-center text-base font-medium">暂未实现</div>
+                <Modal title={t("canvas.projectPage.superResolve")} open={Boolean(superResolveNode?.metadata?.content)} centered footer={null} onCancel={() => setSuperResolveNodeId(null)}>
+                    <div className="py-8 text-center text-base font-medium">{t("canvas.projectPage.notImplemented")}</div>
                 </Modal>
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
 
                 <Modal
-                    title="图片详情"
+                    title={t("canvas.projectPage.imageDetails")}
                     open={Boolean(previewNode?.metadata?.content)}
                     centered
                     onCancel={() => setPreviewNodeId(null)}
@@ -3022,24 +3017,24 @@ function InfiniteCanvasPage() {
                     width="auto"
                     styles={{ body: { padding: 0, display: "flex", justifyContent: "center", alignItems: "center", maxHeight: "80vh" } }}
                 >
-                    {previewNode?.metadata?.content ? <img src={previewNode.metadata.content} alt={previewNode.title || "图片"} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} /> : null}
+                    {previewNode?.metadata?.content ? <img src={previewNode.metadata.content} alt={previewNode.title || t("assets.kinds.image")} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} /> : null}
                 </Modal>
 
                 <Modal
-                    title="清空画布？"
+                    title={t("canvas.projectPage.clearTitle")}
                     open={clearConfirmOpen}
                     centered
                     onCancel={() => setClearConfirmOpen(false)}
                     footer={
                         <>
-                            <Button onClick={() => setClearConfirmOpen(false)}>取消</Button>
+                            <Button onClick={() => setClearConfirmOpen(false)}>{t("common.cancel")}</Button>
                             <Button danger type="primary" onClick={clearCanvas}>
-                                清空
+                                {t("canvas.projectPage.clear")}
                             </Button>
                         </>
                     }
                 >
-                    <p className="text-sm opacity-60">这会删除当前画布上的所有节点和连线。</p>
+                    <p className="text-sm opacity-60">{t("canvas.projectPage.clearDescription")}</p>
                 </Modal>
 
                 <AssetPickerModal open={assetPickerOpen} onInsert={handleAssetInsert} onClose={() => setAssetPickerOpen(false)} />

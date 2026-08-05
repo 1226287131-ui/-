@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "@/i18n";
 
 import { fetchCodexSkills, type AgentSkillDraft, type AgentSkillSummary } from "@/services/api/canvas-agent";
 import { useAgentStore } from "@/stores/use-agent-store";
@@ -52,7 +53,7 @@ export const useAgentSkillStore = create<AgentSkillStore>((set, get) => ({
             set({ skills, selectedSkill, autoPrompt, selectionRevision: current.selectionRevision + (selectionChanged ? 1 : 0), loading: false, loaded: true, errors: (response.errors || []).map(skillErrorText) });
         } catch (error) {
             if (sequence !== loadSequence) return;
-            set({ loading: false, loaded: true, errors: [error instanceof Error ? error.message : "读取 Skill 失败"] });
+            set({ loading: false, loaded: true, errors: [error instanceof Error ? error.message : i18n.t("agent.state.skillReadFailed")] });
         }
     },
     selectSkill: (selectedSkill) => {
@@ -86,8 +87,8 @@ function replaceAutoPrompt(previous: string, next: string, fillEmpty: boolean) {
 
 function skillErrorText(value: unknown) {
     if (typeof value === "string") return value;
-    if (!value || typeof value !== "object") return "Skill 解析失败";
+    if (!value || typeof value !== "object") return i18n.t("agent.state.skillParseFailed");
     const item = value as { path?: unknown; error?: unknown; message?: unknown };
-    const message = typeof item.error === "string" ? item.error : typeof item.message === "string" ? item.message : "Skill 解析失败";
+    const message = typeof item.error === "string" ? item.error : typeof item.message === "string" ? item.message : i18n.t("agent.state.skillParseFailed");
     return typeof item.path === "string" ? `${item.path}：${message}` : message;
 }

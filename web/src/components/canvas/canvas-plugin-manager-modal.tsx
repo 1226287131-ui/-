@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { App, Button, Input, Modal, Popconfirm, Switch, Tabs } from "antd";
 import { AlertTriangle, Download, Puzzle, RefreshCw, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { installPluginFromUrl, setPluginEnabled, uninstallPlugin, updatePlugin } from "@/lib/canvas/plugin-loader";
@@ -9,6 +10,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { usePluginStore, type InstalledPlugin } from "@/stores/canvas/use-plugin-store";
 
 export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+    const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { message } = App.useApp();
     const plugins = usePluginStore((state) => state.plugins);
@@ -47,10 +49,10 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         setInstalling(true);
         try {
             const plugin = await installPluginFromUrl(target);
-            message.success(`已安装插件 ${plugin.name}`);
+            message.success(t("canvas.plugins.installedPlugin", { name: plugin.name }));
             setUrl("");
         } catch (error) {
-            message.error(`安装失败：${error instanceof Error ? error.message : String(error)}`);
+            message.error(t("canvas.plugins.installFailed", { error: error instanceof Error ? error.message : String(error) }));
         } finally {
             setInstalling(false);
         }
@@ -60,9 +62,9 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         setBusyId(entry.id);
         try {
             const plugin = await installPluginFromUrl(entry.url, { official: true });
-            message.success(`已安装 ${plugin.name}`);
+            message.success(t("canvas.plugins.installed", { name: plugin.name }));
         } catch (error) {
-            message.error(`安装失败：${error instanceof Error ? error.message : String(error)}`);
+            message.error(t("canvas.plugins.installFailed", { error: error instanceof Error ? error.message : String(error) }));
         } finally {
             setBusyId(null);
         }
@@ -84,7 +86,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     // upgradable=true 时(远程有更高版本),更新按钮高亮为主色以提示升级
     const installedControls = (record: InstalledPlugin, upgradable = false) => (
         <>
-            <Switch size="small" checked={record.enabled} loading={busyId === record.id} onChange={(checked) => runOnPlugin(record, () => setPluginEnabled(record, checked), checked ? "已启用" : "已禁用")} />
+            <Switch size="small" checked={record.enabled} loading={busyId === record.id} onChange={(checked) => runOnPlugin(record, () => setPluginEnabled(record, checked), t(checked ? "canvas.plugins.enabled" : "canvas.plugins.disabled"))} />
             {!record.local && (
                 <>
                     <Button
@@ -92,11 +94,11 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
                         size="small"
                         icon={<RefreshCw className="size-4" />}
                         loading={busyId === record.id}
-                        title={upgradable ? "有新版本，点击升级" : "从来源更新"}
-                        onClick={() => runOnPlugin(record, async () => void (await updatePlugin(record)), "已更新")}
+                        title={t(upgradable ? "canvas.plugins.upgradeAvailable" : "canvas.plugins.updateFromSource")}
+                        onClick={() => runOnPlugin(record, async () => void (await updatePlugin(record)), t("canvas.plugins.updated"))}
                     />
-                    <Popconfirm title="卸载该插件？" okText="卸载" cancelText="取消" onConfirm={() => uninstallPlugin(record.id)}>
-                        <Button type="text" size="small" danger icon={<Trash2 className="size-4" />} title="卸载" />
+                    <Popconfirm title={t("canvas.plugins.uninstallTitle")} okText={t("canvas.plugins.uninstall")} cancelText={t("canvas.editors.cancel")} onConfirm={() => uninstallPlugin(record.id)}>
+                        <Button type="text" size="small" danger icon={<Trash2 className="size-4" />} title={t("canvas.plugins.uninstall")} />
                     </Popconfirm>
                 </>
             )}
@@ -108,7 +110,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     const withUpgradeDot = (icon: ReactNode) => (
         <span className="relative inline-flex">
             {icon}
-            <span className="absolute -right-1 -top-1 size-2 rounded-full" style={{ background: "#22c55e", boxShadow: `0 0 0 2px ${theme.node.fill}` }} title="有新版本可升级" />
+            <span className="absolute -right-1 -top-1 size-2 rounded-full" style={{ background: "#22c55e", boxShadow: `0 0 0 2px ${theme.node.fill}` }} title={t("canvas.plugins.newVersion")} />
         </span>
     );
 
@@ -149,20 +151,20 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         <div className="space-y-2">
             <div className="flex items-center justify-between">
                 <div className="text-xs" style={{ color: theme.node.muted }}>
-                    本项目官方插件,来自仓库注册表
+                    {t("canvas.plugins.officialDescription")}
                 </div>
                 <Button type="text" size="small" icon={<RefreshCw className={`size-4 ${loadingOfficial ? "animate-spin" : ""}`} />} onClick={loadOfficial} disabled={loadingOfficial}>
-                    刷新
+                    {t("canvas.plugins.refresh")}
                 </Button>
             </div>
             {officialError ? (
                 <div className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                    加载失败：{officialError}
+                    {t("canvas.plugins.loadFailed", { error: officialError })}
                 </div>
             ) : loadingOfficial && official.length === 0 ? (
-                emptyHint("正在获取官方插件…")
+                emptyHint(t("canvas.plugins.loadingOfficial"))
             ) : official.length === 0 ? (
-                emptyHint("暂无官方插件")
+                emptyHint(t("canvas.plugins.noOfficial"))
             ) : (
                 <div className="thin-scrollbar max-h-[46vh] space-y-2 overflow-auto">
                     {official.map((entry) => {
@@ -181,7 +183,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
                                 installedControls(record, upgradable)
                             ) : (
                                 <Button type="primary" size="small" icon={<Download className="size-4" />} loading={busyId === entry.id} onClick={() => handleInstallOfficial(entry)}>
-                                    安装
+                                    {t("canvas.plugins.install")}
                                 </Button>
                             ),
                         );
@@ -196,27 +198,27 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     const thirdPartyTab = (
         <div className="space-y-3">
             <div className="flex gap-2">
-                <Input placeholder="输入插件 JS 文件 URL，例如 https://.../plugin.js" value={url} onChange={(event) => setUrl(event.target.value)} onPressEnter={handleInstallUrl} allowClear />
+                <Input placeholder={t("canvas.plugins.urlPlaceholder")} value={url} onChange={(event) => setUrl(event.target.value)} onPressEnter={handleInstallUrl} allowClear />
                 <Button type="primary" loading={installing} onClick={handleInstallUrl} icon={<Puzzle className="size-4" />}>
-                    安装
+                    {t("canvas.plugins.install")}
                 </Button>
             </div>
-            <div className="thin-scrollbar max-h-[42vh] space-y-2 overflow-auto">{thirdPartyPlugins.length === 0 ? emptyHint("还没有安装第三方插件") : thirdPartyPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>
+            <div className="thin-scrollbar max-h-[42vh] space-y-2 overflow-auto">{thirdPartyPlugins.length === 0 ? emptyHint(t("canvas.plugins.noThirdParty")) : thirdPartyPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>
         </div>
     );
 
     const tabs = [
-        { key: "official", label: "官方插件", children: officialTab },
-        ...(localPlugins.length > 0 ? [{ key: "local", label: "本地插件", children: localTab }] : []),
-        { key: "third", label: "第三方插件", children: thirdPartyTab },
+        { key: "official", label: t("canvas.plugins.official"), children: officialTab },
+        ...(localPlugins.length > 0 ? [{ key: "local", label: t("canvas.plugins.local"), children: localTab }] : []),
+        { key: "third", label: t("canvas.plugins.thirdParty"), children: thirdPartyTab },
     ];
 
     return (
-        <Modal title="节点插件" open={open} onCancel={onClose} footer={null} centered width={640}>
+        <Modal title={t("canvas.plugins.title")} open={open} onCancel={onClose} footer={null} centered width={640}>
             <div className="space-y-3">
                 <div className="flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-5" style={{ borderColor: "#f59e0b55", background: "#f59e0b14", color: theme.node.text }}>
                     <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
-                    <span>插件代码会在当前页面内直接执行，可访问本地数据（包含 AI API Key）。请仅安装你信任来源的插件。</span>
+                    <span>{t("canvas.plugins.warning")}</span>
                 </div>
                 <Tabs defaultActiveKey="official" items={tabs} />
             </div>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, Input, Popover, Tooltip } from "antd";
 import { Check, Search, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useAgentSkillStore } from "@/stores/use-agent-skill-store";
@@ -8,6 +9,7 @@ import { useAgentStore } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 
 export function AgentSkillPicker() {
+    const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const connected = useAgentStore((state) => state.connected);
     const url = useAgentStore((state) => state.url);
@@ -26,8 +28,8 @@ export function AgentSkillPicker() {
     }, [query, skills]);
     const content = (
         <div className="w-72" style={{ color: theme.node.text }}>
-            <div className="mb-2 px-1 text-xs font-medium" style={{ color: theme.node.muted }}>选择本地 Skill</div>
-            <Input allowClear size="small" value={query} onChange={(event) => setQuery(event.target.value)} prefix={<Search className="size-3.5" />} placeholder="搜索 Skill" />
+            <div className="mb-2 px-1 text-xs font-medium" style={{ color: theme.node.muted }}>{t("agent.skills.selectLocal")}</div>
+            <Input allowClear size="small" value={query} onChange={(event) => setQuery(event.target.value)} prefix={<Search className="size-3.5" />} placeholder={t("agent.skills.search")} />
             <div className="thin-scrollbar mt-2 max-h-64 overflow-y-auto">
                 {enabledSkills.length ? enabledSkills.map((skill) => {
                     const selected = selectedSkill?.name === skill.name && selectedSkill.path === skill.path;
@@ -51,14 +53,14 @@ export function AgentSkillPicker() {
                     );
                 }) : (
                     <div className="px-2 py-6 text-center text-xs leading-5" style={{ color: theme.node.muted }}>
-                        {loading ? "正在读取 Skill…" : skills.length ? "没有匹配的已启用 Skill" : "还没有可用的 Skill"}
+                        {t(loading ? "agent.skills.loading" : skills.length ? "agent.skills.noMatch" : "agent.skills.none")}
                     </div>
                 )}
             </div>
         </div>
     );
     return (
-        <Tooltip title={connected ? "选择 Skill" : "连接 Agent 后使用 Skill"} placement="top" open={open ? false : undefined}>
+        <Tooltip title={t(connected ? "agent.skills.select" : "agent.skills.connectHint")} placement="top" open={open ? false : undefined}>
             <Popover
                 arrow={false}
                 trigger="click"
@@ -77,7 +79,7 @@ export function AgentSkillPicker() {
                     disabled={!connected}
                     style={{ color: selectedSkill ? theme.node.text : theme.node.muted, background: selectedSkill ? theme.toolbar.activeBg : undefined }}
                     icon={<Sparkles className="size-4" />}
-                    aria-label="选择 Skill"
+                    aria-label={t("agent.skills.select")}
                 />
             </Popover>
         </Tooltip>

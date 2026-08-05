@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import type { AgentReasoningEffort } from "@/stores/use-agent-store";
 
@@ -5,7 +6,7 @@ type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: strin
 
 export class AgentApiError<T = unknown> extends Error {
     constructor(readonly status: number, readonly response: T & { code?: string; error?: string; msg?: string }) {
-        super(response.error || response.msg || "本地 Agent 请求失败");
+        super(response.error || response.msg || i18n.t("agent.state.requestFailed"));
         this.name = "AgentApiError";
     }
 }

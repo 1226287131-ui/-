@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "@/i18n";
 
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 
@@ -117,7 +118,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     models: [],
     model: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-model") || "",
     reasoningEffort: typeof window === "undefined" ? "" : (localStorage.getItem("canvas-agent-reasoning-effort") as AgentReasoningEffort) || "",
-    activity: "就绪",
+    activity: i18n.t("agent.state.ready"),
     conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} },
     bootstrapStatus: null,
     mcpStartupStatuses: {},
@@ -139,24 +140,24 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         const silent = options?.silent ?? false;
         const endpoint = get().url.trim().replace(/\/$/, "");
         const token = get().token.trim();
-        if (!endpoint || !token) return set({ connectError: silent ? "" : "请填写 Local URL 和 Connect token" });
+        if (!endpoint || !token) return set({ connectError: silent ? "" : i18n.t("agent.state.connectionRequired") });
         try {
             const parsed = new URL(endpoint);
             if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
         } catch {
-            return set({ connectError: silent ? "" : "Local URL 格式不正确" });
+            return set({ connectError: silent ? "" : i18n.t("agent.state.invalidUrl") });
         }
         localStorage.setItem("canvas-agent-url", endpoint);
         localStorage.setItem("canvas-agent-token", token);
         // 只设 enabled=true，由 LocalAgentPanel 的 useEffect 统一负责开 SSE
-        set({ url: endpoint, token, enabled: true, silentConnect: silent, activity: "连接中", connectError: "" });
+        set({ url: endpoint, token, enabled: true, silentConnect: silent, activity: i18n.t("agent.status.connecting"), connectError: "" });
     },
     disconnectAgent: (patch = {}) => {
         agentSource?.close();
         agentSource = null;
         if (connectTimer) clearTimeout(connectTimer);
         connectTimer = null;
-        set({ enabled: false, connected: false, silentConnect: false, activity: "离线", conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} }, bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
+        set({ enabled: false, connected: false, silentConnect: false, activity: i18n.t("agent.state.offline"), conversation: { revision: 0, conversationId: "", threadId: "", status: "idle", mcpStatuses: {} }, bootstrapStatus: null, mcpStartupStatuses: {}, ...patch });
     },
     addMessage: (item) => set((state) => ({ messages: [...state.messages, item] })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),

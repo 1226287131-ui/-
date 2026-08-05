@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Collapse, Dropdown, Form, Input, Modal, Select, Switch, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import { Check, ChevronDown, CircleAlert, FilePenLine, LoaderCircle, LockKeyhole, MessageSquareText, Plus, RefreshCw, Search, Sparkles, Trash2, Workflow } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { createCodexSkill, createCodexSkillDraft, deleteCodexSkill, fetchCodexSkill, postState, setCodexSkillEnabled, updateCodexSkill, type AgentSkillDetail, type AgentSkillDraft, type AgentSkillInterface, type AgentSkillScope, type AgentSkillSummary } from "@/services/api/canvas-agent";
@@ -14,10 +15,10 @@ type SkillDraftSource = "conversation" | "canvas";
 type SkillEditor = { mode: "create"; values?: SkillFormValues } | { mode: "edit"; detail: AgentSkillDetail };
 type SkillFormValues = { name: string; description: string; instructions: string; displayName?: string; shortDescription?: string; defaultPrompt?: string };
 
-const scopeLabels: Record<AgentSkillScope, string> = { repo: "项目", user: "个人", system: "系统", admin: "管理员" };
 const skillNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function AgentSkillsView({ clientId }: { clientId: string }) {
+    const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { message, modal } = App.useApp();
     const connected = useAgentStore((state) => state.connected);
@@ -89,16 +90,16 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
     };
     const generateDraft = async (source: SkillDraftSource) => {
         const agent = useAgentStore.getState();
-        if (agent.sending || agent.waiting) return message.warning("Codex 正在运行，请完成当前任务后再提炼 Skill");
-        if (source === "conversation" && !hasSettledConversation(agent.messages, agent.activeThreadId)) return message.warning("当前对话还没有可提炼的已完成内容");
-        if (source === "canvas" && !agent.canvasContext) return message.warning("当前页面没有可提炼的画布");
-        if (!clientId) return message.warning("当前页面仍在连接 Agent，请稍后再试");
+        if (agent.sending || agent.waiting) return message.warning(t("agent.skillManager.codexBusy"));
+        if (source === "conversation" && !hasSettledConversation(agent.messages, agent.activeThreadId)) return message.warning(t("agent.skillManager.noConversation"));
+        if (source === "canvas" && !agent.canvasContext) return message.warning(t("agent.skillManager.noCanvas"));
+        if (!clientId) return message.warning(t("agent.skillManager.connecting"));
         const connectionRevision = useAgentSkillStore.getState().connectionRevision;
         setGeneratingSource(source);
         try {
             if (source === "canvas") {
                 const synced = await postState(endpoint, token, clientId, agent.canvasContext?.snapshot || null);
-                if (!synced) throw new Error("同步当前画布失败，请检查 Agent 连接后重试");
+                if (!synced) throw new Error(t("agent.skillManager.syncFailed"));
             }
             if (!connectionIsCurrent(connectionRevision)) return;
             const response = await createCodexSkillDraft(endpoint, token, {
@@ -109,11 +110,11 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                 ...(agent.reasoningEffort ? { effort: agent.reasoningEffort } : {}),
             });
             if (!connectionIsCurrent(connectionRevision)) return;
-            if (!response.data) throw new Error("未生成 Skill 草稿");
+            if (!response.data) throw new Error(t("agent.skillManager.noDraft"));
             setDraft(response.data);
-            message.success("草稿已生成，可在技能页确认后创建");
+            message.success(t("agent.skillManager.draftCreated"));
         } catch (error) {
-            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : "生成 Skill 草稿失败");
+            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : t("agent.skillManager.draftFailed"));
         } finally {
             if (connectionIsCurrent(connectionRevision)) setGeneratingSource(null);
         }
@@ -125,10 +126,10 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
         try {
             const response = await fetchCodexSkill(endpoint, token, skill.name);
             if (!connectionIsCurrent(connectionRevision)) return;
-            if (!response.data) throw new Error("未读取到 Skill 内容");
+            if (!response.data) throw new Error(t("agent.skillManager.contentMissing"));
             setEditor({ mode: "edit", detail: response.data });
         } catch (error) {
-            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : "读取 Skill 失败");
+            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : t("agent.skillManager.readFailed"));
         } finally {
             if (connectionIsCurrent(connectionRevision)) setBusySkill("");
         }
@@ -147,7 +148,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
         const name = editor.mode === "edit" ? editor.detail.name : values.name.trim();
         const skillInterface = compactInterface(values);
         if (skillInterface?.defaultPrompt && !mentionsSkill(skillInterface.defaultPrompt, name)) {
-            form.setFields([{ name: "defaultPrompt", errors: [`默认提示词需要包含 $${name}`] }]);
+            form.setFields([{ name: "defaultPrompt", errors: [t("agent.skillManager.defaultPromptMention", { name })] }]);
             setAdvancedOpen(true);
             requestAnimationFrame(() => form.scrollToField("defaultPrompt", { block: "center" }));
             return;
@@ -165,9 +166,9 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
             setAdvancedOpen(false);
             await refresh();
             if (!connectionIsCurrent(connectionRevision)) return;
-            message.success(editor.mode === "create" ? "Skill 已创建" : "Skill 已更新");
+            message.success(t(editor.mode === "create" ? "agent.skillManager.created" : "agent.skillManager.updated"));
         } catch (error) {
-            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : "保存 Skill 失败");
+            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : t("agent.skillManager.saveFailed"));
         } finally {
             if (connectionIsCurrent(connectionRevision)) setSaving(false);
         }
@@ -175,27 +176,27 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
     const confirmDelete = (skill: AgentSkillSummary) => {
         const connectionRevision = useAgentSkillStore.getState().connectionRevision;
         confirmRef.current = modal.confirm({
-            title: `删除 ${skill.interface?.displayName || skill.name}`,
-            content: "删除后本地文件无法恢复，确定继续吗？",
-            okText: "删除",
+            title: t("agent.skillManager.deleteTitle", { name: skill.interface?.displayName || skill.name }),
+            content: t("agent.skillManager.deleteDescription"),
+            okText: t("agent.skillManager.delete"),
             okType: "danger",
-            cancelText: "取消",
+            cancelText: t("common.cancel"),
             onOk: async () => {
                 if (!connectionIsCurrent(connectionRevision)) return;
                 setBusySkill(skill.path);
                 try {
                     const response = await fetchCodexSkill(endpoint, token, skill.name);
                     if (!connectionIsCurrent(connectionRevision)) return;
-                    if (!response.data) throw new Error("未读取到 Skill 内容");
+                    if (!response.data) throw new Error(t("agent.skillManager.contentMissing"));
                     await deleteCodexSkill(endpoint, token, skill.name, response.data.revision);
                     if (!connectionIsCurrent(connectionRevision)) return;
                     if (selectedSkill?.name === skill.name && selectedSkill.path === skill.path) clearSelection();
                     await refresh();
                     if (!connectionIsCurrent(connectionRevision)) return;
-                    message.success("Skill 已删除");
+                    message.success(t("agent.skillManager.deleted"));
                 } catch (error) {
                     if (!connectionIsCurrent(connectionRevision)) return;
-                    message.error(error instanceof Error ? error.message : "删除 Skill 失败");
+                    message.error(error instanceof Error ? error.message : t("agent.skillManager.deleteFailed"));
                     throw error;
                 } finally {
                     if (connectionIsCurrent(connectionRevision)) setBusySkill("");
@@ -216,7 +217,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
             if (!enabled && selectedSkill?.name === skill.name && selectedSkill.path === skill.path) clearSelection();
             await refresh();
         } catch (error) {
-            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : "更新 Skill 状态失败");
+            if (connectionIsCurrent(connectionRevision)) message.error(error instanceof Error ? error.message : t("agent.skillManager.statusFailed"));
         } finally {
             if (connectionIsCurrent(connectionRevision)) setBusySkill("");
         }
@@ -230,8 +231,8 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                 disabled: codexBusy || !hasConversation,
                 label: (
                     <div className="py-0.5">
-                        <div className="text-sm">从当前对话生成草稿</div>
-                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{codexBusy ? "Codex 运行结束后可用" : hasConversation ? "整理当前对话中的可复用流程" : activeThreadId ? "当前对话还没有已完成内容" : "请先开始一段对话"}</div>
+                        <div className="text-sm">{t("agent.skillManager.fromConversation")}</div>
+                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{t(codexBusy ? "agent.skillManager.availableAfterRun" : hasConversation ? "agent.skillManager.conversationDescription" : activeThreadId ? "agent.skillManager.noCompletedContent" : "agent.skillManager.startConversation")}</div>
                     </div>
                 ),
             },
@@ -241,8 +242,8 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                 disabled: codexBusy || !hasCanvas,
                 label: (
                     <div className="py-0.5">
-                        <div className="text-sm">从当前画布生成草稿</div>
-                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{codexBusy ? "Codex 运行结束后可用" : hasCanvas ? "整理当前页面的节点与生成流程" : "当前页面没有可用画布"}</div>
+                        <div className="text-sm">{t("agent.skillManager.fromCanvas")}</div>
+                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{t(codexBusy ? "agent.skillManager.availableAfterRun" : hasCanvas ? "agent.skillManager.canvasDescription" : "agent.skillManager.canvasUnavailable")}</div>
                     </div>
                 ),
             },
@@ -252,12 +253,11 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                 icon: <FilePenLine className="size-4" />,
                 label: (
                     <div className="py-0.5">
-                        <div className="text-sm">空白创建</div>
-                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>从空白表单开始编写</div>
+                        <div className="text-sm">{t("agent.skillManager.blankCreate")}</div>
+                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{t("agent.skillManager.blankDescription")}</div>
                     </div>
                 ),
             },
-        ],
         onClick: ({ key }) => {
             if (key === "manual") {
                 setDraft(null);
@@ -272,40 +272,40 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
             <div className="shrink-0 border-b px-4 py-3" style={{ borderColor: theme.node.stroke }}>
                 <div className="flex items-center justify-between gap-3">
                     <div>
-                        <div className="text-sm font-semibold">本地 Skill</div>
-                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>安装在本机，由 Codex 直接执行</div>
+                        <div className="text-sm font-semibold">{t("agent.skillManager.localSkills")}</div>
+                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{t("agent.skillManager.localDescription")}</div>
                     </div>
                     <div className="flex items-center gap-1">
-                        <Tooltip title="重新读取">
-                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" aria-label="重新读取 Skill" disabled={!connected || loading} icon={<RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />} onClick={() => void refresh()} />
+                        <Tooltip title={t("agent.skillManager.reload")}>
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" aria-label={t("agent.skillManager.reloadSkill")} disabled={!connected || loading} icon={<RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />} onClick={() => void refresh()} />
                         </Tooltip>
                         <Dropdown trigger={["click"]} placement="bottomRight" open={createMenuOpen} onOpenChange={setCreateMenuOpen} disabled={!connected || !clientId || Boolean(generatingSource)} menu={createMenu}>
                             <Button type="text" className="!h-8 !px-2" aria-haspopup="menu" aria-expanded={createMenuOpen} disabled={!connected || !clientId} loading={Boolean(generatingSource)} icon={<Plus className="size-4" />}>
-                                创建 Skill <ChevronDown className="size-3.5 opacity-60" />
+                                {t("agent.skillManager.createSkill")} <ChevronDown className="size-3.5 opacity-60" />
                             </Button>
                         </Dropdown>
                     </div>
                 </div>
                 <div className="mt-3 flex gap-2">
-                    <Input aria-label="搜索 Skill" className="min-w-0 flex-1" allowClear disabled={!connected} value={query} onChange={(event) => setQuery(event.target.value)} prefix={<Search className="size-3.5" />} placeholder="搜索 Skill" />
+                    <Input aria-label={t("agent.skills.search")} className="min-w-0 flex-1" allowClear disabled={!connected} value={query} onChange={(event) => setQuery(event.target.value)} prefix={<Search className="size-3.5" />} placeholder={t("agent.skills.search")} />
                     <Select<ScopeFilter>
                         size="small"
                         variant="borderless"
-                        aria-label="按来源筛选 Skill"
+                        aria-label={t("agent.skillManager.filterBySource")}
                         className="w-28 shrink-0"
                         disabled={!connected}
                         value={scope}
                         onChange={setScope}
-                        options={[{ value: "all", label: "全部来源" }, ...Object.entries(scopeLabels).map(([value, label]) => ({ value: value as AgentSkillScope, label }))]}
+                        options={[{ value: "all", label: t("agent.skillManager.scopes.all") }, ...(["repo", "user", "system", "admin"] as AgentSkillScope[]).map((value) => ({ value, label: t(`agent.skillManager.scopes.${value}`) }))]}
                     />
                 </div>
                 {errors.length ? (
-                    <Button danger type="text" size="small" className="!mt-1 !h-7 !px-1 text-xs" icon={<CircleAlert className="size-3.5" />} onClick={() => setErrorsOpen(true)}>{errors.length} 个 Skill 未能加载</Button>
+                    <Button danger type="text" size="small" className="!mt-1 !h-7 !px-1 text-xs" icon={<CircleAlert className="size-3.5" />} onClick={() => setErrorsOpen(true)}>{t("agent.skillManager.loadErrors", { count: errors.length })}</Button>
                 ) : null}
             </div>
             <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-4">
                 {loading && !loaded ? (
-                    <div className="flex h-40 items-center justify-center gap-2 text-sm" style={{ color: theme.node.muted }}><LoaderCircle className="size-4 animate-spin" />正在读取 Skill</div>
+                    <div className="flex h-40 items-center justify-center gap-2 text-sm" style={{ color: theme.node.muted }}><LoaderCircle className="size-4 animate-spin" />{t("agent.skills.loading")}</div>
                 ) : filteredSkills.length ? (
                     <div className="divide-y" style={{ borderColor: theme.node.stroke }}>
                         {filteredSkills.map((skill) => {
@@ -318,25 +318,25 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                                         <div className="min-w-0 flex-1">
                                             <div className="flex min-w-0 items-center gap-2">
                                                 <span className="truncate text-sm font-medium">{skill.interface?.displayName || skill.name}</span>
-                                                {!skill.managed ? <Tooltip title="外部 Skill 只能使用或启停"><LockKeyhole className="size-3.5 shrink-0" style={{ color: theme.node.faint }} /></Tooltip> : null}
+                                                {!skill.managed ? <Tooltip title={t("agent.skillManager.externalReadonly")}><LockKeyhole className="size-3.5 shrink-0" style={{ color: theme.node.faint }} /></Tooltip> : null}
                                             </div>
-                                            <div className="mt-1 line-clamp-2 text-xs leading-5" style={{ color: theme.node.muted }}>{skill.interface?.shortDescription || skill.shortDescription || skill.description || "暂无说明"}</div>
+                                            <div className="mt-1 line-clamp-2 text-xs leading-5" style={{ color: theme.node.muted }}>{skill.interface?.shortDescription || skill.shortDescription || skill.description || t("agent.skillManager.noDescription")}</div>
                                             <Tooltip title={skill.path}>
-                                                <div className="mt-1.5 truncate text-[11px]" style={{ color: theme.node.faint }}>{scopeLabels[skill.scope] || skill.scope} · {skill.name}</div>
+                                                <div className="mt-1.5 truncate text-[11px]" style={{ color: theme.node.faint }}>{t(`agent.skillManager.scopes.${skill.scope}`)} · {skill.name}</div>
                                             </Tooltip>
                                         </div>
                                     </div>
                                     <div className="mt-2 flex items-center justify-between gap-2 pl-7">
                                         <label className="inline-flex items-center gap-2 text-xs" style={{ color: theme.node.muted }}>
                                             <Switch size="small" checked={skill.enabled} loading={busy} disabled={!connected || Boolean(busySkill) || Boolean(generatingSource)} onChange={(enabled) => void toggleEnabled(skill, enabled)} />
-                                            {skill.enabled ? "已启用" : "已停用"}
+                                            {t(skill.enabled ? "agent.skillManager.enabled" : "agent.skillManager.disabled")}
                                         </label>
                                         <div className="flex items-center gap-0.5">
-                                            <Button type="text" size="small" disabled={!connected || !skill.enabled || Boolean(busySkill)} icon={selected ? <Check className="size-3.5" /> : <Sparkles className="size-3.5" />} onClick={() => useSkill(skill)}>{selected ? "已选择" : "使用"}</Button>
+                                            <Button type="text" size="small" disabled={!connected || !skill.enabled || Boolean(busySkill)} icon={selected ? <Check className="size-3.5" /> : <Sparkles className="size-3.5" />} onClick={() => useSkill(skill)}>{t(selected ? "agent.skillManager.selected" : "agent.skillManager.use")}</Button>
                                             {skill.managed ? (
                                                 <>
-                                                    <Tooltip title="编辑"><Button type="text" shape="circle" size="small" aria-label={`编辑 ${skill.interface?.displayName || skill.name}`} disabled={!connected || Boolean(busySkill) || Boolean(generatingSource)} icon={<FilePenLine className="size-3.5" />} onClick={() => void openEdit(skill)} /></Tooltip>
-                                                    <Tooltip title="删除"><Button danger type="text" shape="circle" size="small" aria-label={`删除 ${skill.interface?.displayName || skill.name}`} disabled={!connected || Boolean(busySkill) || Boolean(generatingSource)} icon={<Trash2 className="size-3.5" />} onClick={() => confirmDelete(skill)} /></Tooltip>
+                                                    <Tooltip title={t("common.edit")}><Button type="text" shape="circle" size="small" aria-label={t("agent.skillManager.editNamed", { name: skill.interface?.displayName || skill.name })} disabled={!connected || Boolean(busySkill) || Boolean(generatingSource)} icon={<FilePenLine className="size-3.5" />} onClick={() => void openEdit(skill)} /></Tooltip>
+                                                    <Tooltip title={t("common.delete")}><Button danger type="text" shape="circle" size="small" aria-label={t("agent.skillManager.deleteNamed", { name: skill.interface?.displayName || skill.name })} disabled={!connected || Boolean(busySkill) || Boolean(generatingSource)} icon={<Trash2 className="size-3.5" />} onClick={() => confirmDelete(skill)} /></Tooltip>
                                                 </>
                                             ) : null}
                                         </div>
@@ -348,23 +348,23 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                 ) : (
                     <div className="flex h-48 flex-col items-center justify-center text-center">
                         <Sparkles className="size-5" style={{ color: theme.node.faint }} />
-                        <div className="mt-3 text-sm font-medium">{!connected ? "连接 Agent 后查看 Skill" : skills.length ? "没有匹配的 Skill" : "还没有本地 Skill"}</div>
-                        <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>{!connected ? "连接成功后会读取本机已安装的 Skill" : skills.length ? "换个关键词或来源试试" : "创建一个，或在本机安装后刷新"}</div>
+                        <div className="mt-3 text-sm font-medium">{t(!connected ? "agent.skillManager.connectToView" : skills.length ? "agent.skillManager.noMatch" : "agent.skillManager.none")}</div>
+                        <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>{t(!connected ? "agent.skillManager.connectDescription" : skills.length ? "agent.skillManager.tryAnotherFilter" : "agent.skillManager.createOrInstall")}</div>
                     </div>
                 )}
             </div>
 
-            <Modal title={`${errors.length} 个 Skill 未能加载`} open={errorsOpen} footer={null} width={720} onCancel={() => setErrorsOpen(false)}>
+            <Modal title={t("agent.skillManager.loadErrors", { count: errors.length })} open={errorsOpen} footer={null} width={720} onCancel={() => setErrorsOpen(false)}>
                 <div className="thin-scrollbar mt-4 max-h-[60vh] overflow-y-auto rounded-md border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke }}>
                     {errors.map((error, index) => <div key={`${index}:${error}`} className="break-all py-1" style={{ color: theme.node.muted }}>{error}</div>)}
                 </div>
             </Modal>
 
             <Modal
-                title={editor?.mode === "edit" ? `编辑 ${editor.detail.interface?.displayName || editor.detail.name}` : "创建 Skill"}
+                title={editor?.mode === "edit" ? t("agent.skillManager.editNamed", { name: editor.detail.interface?.displayName || editor.detail.name }) : t("agent.skillManager.createSkill")}
                 open={Boolean(editor)}
-                okText={editor?.mode === "edit" ? "保存更改" : "创建 Skill"}
-                cancelText="取消"
+                okText={t(editor?.mode === "edit" ? "agent.skillManager.saveChanges" : "agent.skillManager.createSkill")}
+                cancelText={t("common.cancel")}
                 confirmLoading={saving}
                 width={680}
                 centered
@@ -378,17 +378,17 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                 }}
                 onOk={() => void saveSkill()}
             >
-                <div className="mb-5 text-xs" style={{ color: theme.node.muted }}>保存到 本地 Agent 工作区 · <span className="font-mono">.agents/skills</span></div>
+                <div className="mb-5 text-xs" style={{ color: theme.node.muted }}>{t("agent.skillManager.saveLocation")} · <span className="font-mono">.agents/skills</span></div>
                 <Form key={editor?.mode === "edit" ? editor.detail.revision : `create:${editor?.values?.name || "blank"}`} form={form} initialValues={editorValues} layout="vertical" requiredMark="optional" preserve={false}>
-                    <div className="mb-3 text-xs font-medium" style={{ color: theme.node.muted }}>基本信息</div>
+                    <div className="mb-3 text-xs font-medium" style={{ color: theme.node.muted }}>{t("agent.skillManager.basicInfo")}</div>
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-                        <Form.Item name="name" label="Skill 标识" extra="用于文件夹名和 $skill-name 调用。" rules={[{ required: true, message: "请输入 Skill 标识" }, { max: 64, message: "Skill 标识不能超过 64 个字符" }, { pattern: skillNamePattern, message: "仅支持小写字母、数字和连字符，连字符不能连续或位于首尾" }]}>
-                            <Input maxLength={64} disabled={editor?.mode === "edit"} placeholder="例如 product-grid" />
+                        <Form.Item name="name" label={t("agent.skillManager.identifier")} extra={t("agent.skillManager.identifierExtra")} rules={[{ required: true, message: t("agent.skillManager.identifierRequired") }, { max: 64, message: t("agent.skillManager.identifierMax") }, { pattern: skillNamePattern, message: t("agent.skillManager.identifierPattern") }]}>
+                            <Input maxLength={64} disabled={editor?.mode === "edit"} placeholder={t("agent.skillManager.identifierPlaceholder")} />
                         </Form.Item>
-                        <Form.Item name="displayName" label="显示名称" rules={[{ max: 64, message: "显示名称不能超过 64 个字符" }]}><Input maxLength={64} placeholder="例如 产品九宫格生成" /></Form.Item>
+                        <Form.Item name="displayName" label={t("agent.skillManager.displayName")} rules={[{ max: 64, message: t("agent.skillManager.displayNameMax") }]}><Input maxLength={64} placeholder={t("agent.skillManager.displayNamePlaceholder")} /></Form.Item>
                     </div>
-                    <Form.Item name="description" label="何时使用" extra="说明这个 Skill 的能力和适用场景，Codex 会据此判断是否调用。" rules={[{ required: true, message: "请输入使用场景" }, { max: 1024, message: "使用场景不能超过 1024 个字符" }, { validator: (_, value) => typeof value === "string" && /[<>]/.test(value) ? Promise.reject(new Error("使用场景不能包含尖括号")) : Promise.resolve() }]}><Input.TextArea maxLength={1024} autoSize={{ minRows: 2, maxRows: 4 }} placeholder="例如：当用户需要基于商品信息规划并生成一组产品图时使用" /></Form.Item>
-                    <Form.Item name="instructions" label="执行说明" extra="按实际执行顺序写清步骤、约束和输出要求。" rules={[{ required: true, message: "请输入执行说明" }]}><Input.TextArea className="!leading-6" autoSize={{ minRows: 6, maxRows: 10 }} placeholder="写清楚执行步骤、必要检查和最终输出" /></Form.Item>
+                    <Form.Item name="description" label={t("agent.skillManager.whenToUse")} extra={t("agent.skillManager.whenToUseExtra")} rules={[{ required: true, message: t("agent.skillManager.whenToUseRequired") }, { max: 1024, message: t("agent.skillManager.whenToUseMax") }, { validator: (_, value) => typeof value === "string" && /[<>]/.test(value) ? Promise.reject(new Error(t("agent.skillManager.noAngleBrackets"))) : Promise.resolve() }]}><Input.TextArea maxLength={1024} autoSize={{ minRows: 2, maxRows: 4 }} placeholder={t("agent.skillManager.whenToUsePlaceholder")} /></Form.Item>
+                    <Form.Item name="instructions" label={t("agent.skillManager.instructions")} extra={t("agent.skillManager.instructionsExtra")} rules={[{ required: true, message: t("agent.skillManager.instructionsRequired") }]}><Input.TextArea className="!leading-6" autoSize={{ minRows: 6, maxRows: 10 }} placeholder={t("agent.skillManager.instructionsPlaceholder")} /></Form.Item>
                     <Collapse
                         ghost
                         size="small"
@@ -398,11 +398,11 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                         items={[{
                             key: "advanced",
                             forceRender: true,
-                            label: <span className="text-sm font-medium">高级设置</span>,
+                            label: <span className="text-sm font-medium">{t("agent.skillManager.advanced")}</span>,
                             children: (
                                 <>
-                                    <Form.Item name="shortDescription" label="卡片短说明" extra="填写时控制在 25–64 个字符，便于快速浏览。" rules={[{ min: 25, message: "卡片短说明不能少于 25 个字符" }, { max: 64, message: "卡片短说明不能超过 64 个字符" }]}><Input maxLength={64} showCount placeholder="可选，用于列表展示" /></Form.Item>
-                                    <Form.Item name="defaultPrompt" label="默认提示词" extra="填写时必须准确包含 $skill-name，例如 $product-grid。" rules={[{ max: 1024, message: "默认提示词不能超过 1024 个字符" }]}><Input.TextArea maxLength={1024} autoSize={{ minRows: 2, maxRows: 4 }} placeholder="可选，选择 Skill 时预填到输入框" /></Form.Item>
+                                    <Form.Item name="shortDescription" label={t("agent.skillManager.shortDescription")} extra={t("agent.skillManager.shortDescriptionExtra")} rules={[{ min: 25, message: t("agent.skillManager.shortDescriptionMin") }, { max: 64, message: t("agent.skillManager.shortDescriptionMax") }]}><Input maxLength={64} showCount placeholder={t("agent.skillManager.shortDescriptionPlaceholder")} /></Form.Item>
+                                    <Form.Item name="defaultPrompt" label={t("agent.skillManager.defaultPrompt")} extra={t("agent.skillManager.defaultPromptExtra")} rules={[{ max: 1024, message: t("agent.skillManager.defaultPromptMax") }]}><Input.TextArea maxLength={1024} autoSize={{ minRows: 2, maxRows: 4 }} placeholder={t("agent.skillManager.defaultPromptPlaceholder")} /></Form.Item>
                                 </>
                             ),
                         }]}
