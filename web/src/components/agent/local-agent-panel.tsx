@@ -125,10 +125,10 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     const { message, modal } = App.useApp();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    // 逐字段 selector + useShallow：只有这些字段变化时才重渲染。
-    // 注意：canvasContext 不在此订阅内 —— 它在拖拽/resize 时会被 project 每帧写入，
-    // 但面板只在 ref 同步与防抖 postState 中用到它、渲染层从不读它。若把它放进订阅，
-    // 面板会随画布每帧重渲染（性能问题，也是 #185 崩溃的放大器）。改为下方 subscribe 命令式监听。
+    // Field-level selectors with useShallow rerender only when these fields change.
+    // canvasContext is intentionally excluded because project updates it every frame during dragging and resizing.
+    // The panel uses it only for ref synchronization and debounced postState calls, never during rendering.
+    // Subscribing here would rerender the panel every frame and amplify the #185 crash, so it is observed imperatively below.
     const { width, url, token, connected, enabled, prompt, attachments, sending, waiting, tokenUsage, eventLogs, threads, activeThreadId, workspacePath, loadingThreads, activeTab, confirmTools, permissionMode, models, model, reasoningEffort, activity, conversation, connectError, pendingTool, pendingApprovals } = useAgentStore(
         useShallow((state) => ({
             width: state.width,
@@ -315,7 +315,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             if (sequence === loadThreadsSequenceRef.current && !threadOperationRef.current) setAgentState({ loadingThreads: false });
         }
     }, [applyConversationState, applyWorkspaceChange, endpoint, loadThreadSnapshot, setAgentState, token]);
-    // canvasContext 命令式订阅：保持 ref 最新，并在快照变化时防抖上报，全程不触发面板重渲染。
+    // Imperatively subscribe to canvasContext to keep the ref current and debounce snapshot reports without rerendering the panel.
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
         const unsubscribe = useAgentStore.subscribe((state) => {
@@ -1466,7 +1466,7 @@ function saveAgentClientId(clientId: string) {
     try {
         sessionStorage.setItem("canvas-agent-client-id", clientId);
     } catch {
-        // 内存身份仍可保证当前页面会话内的请求归属一致。
+        // The in-memory identity still keeps request ownership consistent within the current page session.
     }
 }
 

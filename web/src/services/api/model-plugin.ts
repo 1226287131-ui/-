@@ -106,9 +106,9 @@ function createPoll(signal?: AbortSignal) {
 
 /**
  * Run a user-authored model call script as an async function body with flat locals (see PLUGIN_VARIABLES):
- *   prompt / images / messages / params        —— 本次请求的输入
- *   model / baseUrl / apiKey / systemPrompt / reasoningEffort     —— 当前渠道与文本设置
- *   http / request / poll / sleep / signal / onDelta    —— 调用辅助
+ *   prompt / images / messages / params        — request input
+ *   model / baseUrl / apiKey / systemPrompt / reasoningEffort     — current channel and text settings
+ *   http / request / poll / sleep / signal / onDelta    — request helpers
  * The script must `return` the result; each caller normalizes it to its capability's shape.
  */
 export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<T> {

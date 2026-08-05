@@ -149,7 +149,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         }
         localStorage.setItem("canvas-agent-url", endpoint);
         localStorage.setItem("canvas-agent-token", token);
-        // 只设 enabled=true，由 LocalAgentPanel 的 useEffect 统一负责开 SSE
+        // Only set enabled here; LocalAgentPanel's effect owns SSE initialization.
         set({ url: endpoint, token, enabled: true, silentConnect: silent, activity: i18n.t("agent.status.connecting"), connectError: "" });
     },
     disconnectAgent: (patch = {}) => {

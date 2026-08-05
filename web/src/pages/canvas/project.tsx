@@ -88,7 +88,7 @@ import {
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio } from "@/types/media";
 
-// 内置节点注册到统一注册表(模块加载时执行一次)
+// Register built-in nodes in the shared registry once when the module loads.
 registerBuiltinNodes();
 
 type CanvasClipboard = {
@@ -117,7 +117,7 @@ type CanvasGenerationRequest = {
 
 const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
-// 稳定的空引用数组:避免每次渲染 `... || []` 产生新数组引用而击穿 CanvasNode 的 React.memo
+// Stable empty reference array prevents `... || []` from invalidating CanvasNode's React.memo on every render.
 const EMPTY_REFERENCES: CanvasResourceReference[] = [];
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
@@ -140,7 +140,7 @@ export default function CanvasPage() {
 function InfiniteCanvasPage() {
     const { message, modal } = App.useApp();
     const { t } = useTranslation();
-    // 订阅节点注册表版本,插件动态注册/卸载后驱动画布重渲染
+    // Subscribe to the registry version so plugin registration changes rerender the canvas.
     const nodeRegistryVersion = useNodeRegistryVersion((state) => state.version);
     const params = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -572,8 +572,8 @@ function InfiniteCanvasPage() {
     }, [collapsingBatchIds, nodes, size.height, size.width, viewport.k, viewport.x, viewport.y]);
 
     const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-    // 工具条跟随「单选节点」:点击/新建/框选/键盘选中任一节点都会显示,不再仅靠精确点中触发。
-    // 多选时不显示;拖拽中由下方 isNodeDragging 守卫隐藏。
+    // The toolbar follows a single selected node selected by click, creation, marquee, or keyboard.
+    // It stays hidden for multi-selection and while isNodeDragging is true.
     const singleSelectedNodeId = selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
     const toolbarNode = (toolbarNodeId ? nodeById.get(toolbarNodeId) || null : null) || (singleSelectedNodeId ? nodeById.get(singleSelectedNodeId) || null : null);
     const infoNode = infoNodeId ? nodeById.get(infoNodeId) || null : null;
@@ -693,9 +693,9 @@ function InfiniteCanvasPage() {
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
             const definition = getNodeDefinition(type);
-            // 纯展示型插件节点(hidePanel)不弹面板;插件自定义 Panel 需显式 autoOpenPanel 才在新建时打开;
-            // 声明了 useBuiltinPanel 的插件节点复用内置生成面板,新建即打开(与图片节点一致);
-            // 内置的图片/视频/配置类节点保持原有「新建即打开生图面板」行为。
+            // Display-only plugin nodes with hidePanel do not open a panel; custom Panels require autoOpenPanel on creation.
+            // Plugin nodes declaring useBuiltinPanel open the built-in generation panel on creation, like image nodes.
+            // Built-in image, video, and config nodes retain their existing open-on-create behavior.
             const wantsPanel = definition?.hidePanel
                 ? false
                 : definition?.Panel
@@ -1034,8 +1034,8 @@ function InfiniteCanvasPage() {
         [cancelPendingConnectionCreate, screenToCanvas],
     );
 
-    // 仅处理「选中」的纯逻辑,供 body 冒泡拖拽入口与外层 capture 入口共用。
-    // 返回本次点击后的单选目标 id(多选/取消时为 null),用于同步工具条。
+    // Selection-only logic shared by the bubbling drag entry point and outer capture handler.
+    // Returns the single target ID after the click, or null for multi-selection or deselection, to sync the toolbar.
     const selectNodeByEvent = useCallback((event: Pick<ReactMouseEvent, "shiftKey" | "metaKey" | "ctrlKey">, nodeId: string) => {
         const nextSelected = new Set(selectedNodeIdsRef.current);
         if (event.shiftKey || event.metaKey || event.ctrlKey) {
@@ -1051,9 +1051,9 @@ function InfiniteCanvasPage() {
         return { nextSelected, soloId };
     }, []);
 
-    // capture 阶段选中:点击节点内部任意元素(含吞掉 mousedown 的 textarea/iframe)都能选中并弹出工具条。
-    // 只做选中,不启动拖拽 —— 拖拽仍由 body 的 onMouseDown(冒泡)负责,故编辑器内选词不会拖动节点。
-    // capture 必先于同一次事件的 body 冒泡触发,故把算好的选中集暂存,供紧随其后的拖拽入口复用,避免二次选中(shift 反选被抵消)。
+    // Capture-phase selection lets any inner element, including textarea or iframe, select the node and show its toolbar.
+    // It only selects; body onMouseDown still starts dragging, so text selection inside editors does not drag the node.
+    // Cache the capture result for the following bubbling drag handler to avoid applying shift-selection twice.
     const pendingSelectionRef = useRef<Set<string> | null>(null);
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
@@ -1069,7 +1069,7 @@ function InfiniteCanvasPage() {
 
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
         event.stopPropagation();
-        // 选中已由 capture 阶段完成;这里只负责建立拖拽。若因故没走 capture,则兜底再选一次。
+        // Capture already selected the node; this only starts dragging, with a fallback selection if capture did not run.
         const currentNodes = nodesRef.current;
         const nextSelected = pendingSelectionRef.current ?? selectNodeByEvent(event, nodeId).nextSelected;
         pendingSelectionRef.current = null;
@@ -1140,7 +1140,7 @@ function InfiniteCanvasPage() {
             if (clickedNode?.type === CanvasNodeType.Text) {
                 setDialogNodeId((current) => (current === clickedNodeId ? current : null));
             } else if (clickedDefinition?.hidePanel) {
-                // 纯展示型插件节点:单击只选中,不弹下方面板
+                // Clicking a display-only plugin node selects it without opening a lower panel.
                 setDialogNodeId((current) => (current === clickedNodeId ? current : null));
             } else if (clickedNode?.type !== CanvasNodeType.Group) {
                 setDialogNodeId(clickedNodeId);
@@ -1864,13 +1864,13 @@ function InfiniteCanvasPage() {
                     (containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2,
                     (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2,
                 );
-            const STAGGER = 40; // 多文件时的偏移间距
+            const STAGGER = 40; // Offset between multiple imported files.
 
-            // 如果有替换目标节点，第一个文件替换它，其余在附近新建
+            // When replacing a target node, use the first file as the replacement and create the rest nearby.
             if (target?.nodeId) {
                 const [first, ...rest] = files;
 
-                // 第一个文件：替换目标节点
+                // Replace the target node with the first file.
                 if (isAudioFile(first)) {
                     const audio = await uploadMediaFile(first, "audio");
                     const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
@@ -1949,7 +1949,7 @@ function InfiniteCanvasPage() {
                     setSelectedConnectionId(null);
                 }
 
-                // 剩余文件：在目标节点附近新建
+                // Create the remaining files near the target node.
                 for (let i = 0; i < rest.length; i++) {
                     const offsetPos = { x: basePosition.x + (i + 1) * STAGGER, y: basePosition.y + (i + 1) * STAGGER };
                     const f = rest[i];
@@ -1962,7 +1962,7 @@ function InfiniteCanvasPage() {
                     }
                 }
             } else {
-                // 无替换目标：所有文件在画布中心附近新建
+                // Without a replacement target, create all files near the canvas center.
                 for (let i = 0; i < files.length; i++) {
                     const offsetPos = { x: basePosition.x + i * STAGGER, y: basePosition.y + i * STAGGER };
                     const f = files[i];
@@ -2033,8 +2033,8 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            // 插件节点声明了 useBuiltinPanel.writeBackToSelf:复用内置面板生成,但结果写回节点自身。
-            // 目前支持 image 模式(全景等展示型节点),前缀由 useBuiltinPanel.promptPrefix 指定。
+            // useBuiltinPanel.writeBackToSelf reuses built-in generation while writing the result back to the plugin node.
+            // Image mode currently supports display-only nodes such as panoramas, with a useBuiltinPanel.promptPrefix.
             const builtinPanel = sourceNode ? getNodeDefinition(sourceNode.type)?.useBuiltinPanel : undefined;
             if (sourceNode && builtinPanel?.writeBackToSelf && builtinPanel.mode === "image") {
                 const scene = prompt.trim();
@@ -2044,7 +2044,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, prompt: scene, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
                 try {
                     const fullPrompt = (builtinPanel.promptPrefix || "") + scene;
-                    // 上游图片节点作为参考图(图生图);无上游则纯文生图
+                    // Upstream image nodes become references; without them this is text-to-image.
                     const upstreamNodes = connectionsRef.current
                         .filter((conn) => conn.toNodeId === nodeId)
                         .map((conn) => nodesRef.current.find((node) => node.id === conn.fromNodeId))
@@ -2690,10 +2690,10 @@ function InfiniteCanvasPage() {
         [insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
     );
 
-    // --- 传给 CanvasNode 的回调/渲染函数统一 memo 化 ---
-    // CanvasNode 是 React.memo,但只要这些 prop 每次渲染都是新引用,memo 就失效,
-    // 导致点击/悬停/移动视角时全部节点跟着重渲染(markdown 尤其明显)。全部 useCallback 后,
-    // 未变化的节点不再重渲染。依赖里的 map/handler 均已 memo 化,纯交互时保持稳定。
+    // Memoize every callback and render function passed to CanvasNode.
+    // CanvasNode uses React.memo, but new prop references would invalidate it on every render and rerender every node
+    // during click, hover, or viewport changes, which is especially expensive for Markdown. These useCallback values
+    // and their memoized map/handler dependencies remain stable during interaction, so unchanged nodes do not rerender.
     const handleNodeHoverStart = useCallback((nodeId: string) => {
         if (nodeDraggingRef.current) return;
         setHoveredNodeId(nodeId);

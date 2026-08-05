@@ -81,7 +81,7 @@ export function NodeCreateMenu({ position, onCreate, onClose }: { position: Posi
     useNodeRegistryVersion();
     const menuRef = useRef<HTMLDivElement>(null);
     const definitions = listNodeDefinitions().filter((def) => def.showInCreateMenu !== false);
-    // 点击菜单外的空白处自动关闭
+    // Close automatically when clicking outside the menu.
     useEffect(() => {
         const handlePointerDown = (event: PointerEvent) => {
             if (menuRef.current && !menuRef.current.contains(event.target as Node)) onClose();

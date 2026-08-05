@@ -7,8 +7,8 @@ import { registerNodeDefinitions } from "@/lib/canvas/node-registry";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import type { CanvasNodeDefinition, CanvasNodeResource } from "@/types/canvas-plugin";
 
-// 内置节点的可扩展元数据(尺寸/初始 metadata 复用 NODE_SPECS)。
-// 渲染仍由 canvas-node 内部渲染器负责,故不提供 Content。
+// Extensible metadata for built-in nodes, reusing NODE_SPECS for size and initial metadata.
+// Rendering remains in canvas-node's internal renderer, so no Content component is provided.
 function builtinResource(node: CanvasNodeData): CanvasNodeResource | null {
     if (node.type === CanvasNodeType.Image && node.metadata?.content) return { kind: "image", url: node.metadata.content };
     if (node.type === CanvasNodeType.Video && node.metadata?.content) return { kind: "video", url: node.metadata.content };

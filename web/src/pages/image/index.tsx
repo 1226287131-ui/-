@@ -213,7 +213,7 @@ export default function ImagePage() {
         }
     };
 
-    // 响应 Agent 面板下发的生图命令：填入提示词，并按需自动触发生成。
+    // Handle image-generation commands from the Agent panel by setting the prompt and optionally starting generation.
     useEffect(() => {
         if (!imageCommand || imageCommand.nonce === processedCommandRef.current) return;
         processedCommandRef.current = imageCommand.nonce;
@@ -366,7 +366,7 @@ export default function ImagePage() {
             );
             message.success(t("workbench.retrySuccess"));
         } catch {
-            // runGenerationSlot 已经把结果状态更新为 failed
+            // runGenerationSlot has already marked the result as failed.
         }
     };
 

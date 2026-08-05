@@ -129,7 +129,7 @@ function TabButton({ label, active, theme, onClick }: { label: string; active: b
 }
 
 // ---------------------------------------------------------------------------
-// 画布 Tab —— 列出节点,点击居中放大并选中
+// Canvas tab: list nodes and center, zoom, and select the clicked node.
 // ---------------------------------------------------------------------------
 
 const NODE_FILTER_VALUES = ["all", CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.Text, CanvasNodeType.Audio, CanvasNodeType.Config, CanvasNodeType.Group];
@@ -270,7 +270,7 @@ function CheckMark({ checked, theme }: { checked: boolean; theme: CanvasTheme })
 }
 
 // ---------------------------------------------------------------------------
-// 资产 Tab —— 按类型折叠分组 + 标签筛选,点击插入画布
+// Assets tab: collapsible type groups, tag filtering, and click-to-insert.
 // ---------------------------------------------------------------------------
 
 const ASSET_GROUPS: { kind: AssetKind; icon: typeof Square }[] = [
@@ -438,7 +438,7 @@ function AssetCover({ asset }: { asset: Asset }) {
 }
 
 // ---------------------------------------------------------------------------
-// 提示词库 Tab —— 按来源折叠分组,展开时按需加载,点击复制 / 插入文本节点
+// Prompt library tab: collapsible source groups, lazy loading, and copy or text-node insertion actions.
 // ---------------------------------------------------------------------------
 
 const CanvasPromptsTab = memo(function CanvasPromptsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
@@ -506,7 +506,7 @@ function PromptSourceGroup({
     onView: (prompt: Prompt) => void;
 }) {
     const { t } = useTranslation();
-    // 展开过一次即缓存,避免收起后重复请求;搜索命中时也需要拿到数据来计数。
+    // Cache a source after its first expansion to avoid repeated requests; search results also need the data for counts.
     const showResults = open || !!keyword.trim();
     const query = useQuery({ queryKey: ["side-panel-prompts", sourceId], queryFn: () => fetchSourcePrompts(sourceId), enabled: showResults, staleTime: 1000 * 60 * 60 });
 

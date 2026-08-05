@@ -6,9 +6,9 @@ import type { CanvasNodeDefinition } from "@/types/canvas-plugin";
 import { CanvasNodeType } from "@/types/canvas";
 
 const definitions = new Map<string, CanvasNodeDefinition>();
-const ownerByType = new Map<string, string>(); // type -> pluginId(内置为 "builtin")
+const ownerByType = new Map<string, string>(); // type -> pluginId; built-in nodes use "builtin".
 
-// 注册表版本号,注册/卸载时自增,驱动创建菜单等 UI 重渲染
+// Increment the registry version on registration or removal to update dependent UI such as creation menus.
 export const useNodeRegistryVersion = create<{ version: number }>(() => ({ version: 0 }));
 function bump() {
     useNodeRegistryVersion.setState((state) => ({ version: state.version + 1 }));
@@ -49,7 +49,7 @@ export function isRegisteredNodeType(type: string) {
 
 const FALLBACK_SPEC = { width: 340, height: 240, title: i18n.t("canvas.node.node"), metadata: {} as CanvasNodeDefinition["defaultMetadata"] };
 
-// 提供默认尺寸/标题/初始 metadata,createCanvasNode 与 agent-ops 复用
+// Provide default size, title, and metadata shared by createCanvasNode and agent operations.
 export function getNodeSpec(type: string) {
     const def = definitions.get(type);
     if (!def) return FALLBACK_SPEC;

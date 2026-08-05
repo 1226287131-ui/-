@@ -38,7 +38,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         }
     }, []);
 
-    // 打开面板时拉取官方清单(仅在尚未加载过时,避免重复请求)
+    // Fetch the official registry when opening the panel, but only if it has not been loaded yet.
     useEffect(() => {
         if (open && official.length === 0 && !loadingOfficial && !officialError) void loadOfficial();
     }, [open, official.length, loadingOfficial, officialError, loadOfficial]);
@@ -82,8 +82,8 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         }
     };
 
-    // 已安装插件的操作区:启用开关 +(非本地)更新/卸载
-    // upgradable=true 时(远程有更高版本),更新按钮高亮为主色以提示升级
+    // Installed plugin actions: enable toggle plus update/uninstall for non-local plugins.
+    // Highlight the update action when a newer remote version is available.
     const installedControls = (record: InstalledPlugin, upgradable = false) => (
         <>
             <Switch size="small" checked={record.enabled} loading={busyId === record.id} onChange={(checked) => runOnPlugin(record, () => setPluginEnabled(record, checked), t(checked ? "canvas.plugins.enabled" : "canvas.plugins.disabled"))} />
@@ -105,8 +105,8 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         </>
     );
 
-    // 图标外挂一个绿点(右上角),用于「有可升级版本」的提示。
-    // boxShadow 画一圈与卡片同色的描边环,让绿点从图标上「浮起」。
+    // Add a green dot at the icon's top-right corner when an update is available.
+    // A card-colored box shadow separates the dot visually from the icon.
     const withUpgradeDot = (icon: ReactNode) => (
         <span className="relative inline-flex">
             {icon}
@@ -126,7 +126,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         </div>
     );
 
-    // 通用插件行:图标 + 标题(名称 + 版本)+ 描述 + 右侧操作
+    // Shared plugin row: icon, title with name and version, description, and actions.
     const row = (key: string, icon: ReactNode, name: string, version: string, subtitle: string | undefined, right: ReactNode) => (
         <div key={key} className="flex items-center gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
             <span className="grid size-9 shrink-0 place-items-center rounded-lg text-base" style={{ background: theme.toolbar.activeBg, color: theme.node.muted }}>
@@ -169,14 +169,14 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
                 <div className="thin-scrollbar max-h-[46vh] space-y-2 overflow-auto">
                     {official.map((entry) => {
                         const record = recordById.get(entry.id);
-                        // 已安装且远程版本更高 → 显示绿点并高亮升级按钮
+                        // Show the update dot and highlight the action when the remote version is newer.
                         const upgradable = Boolean(record && hasUpgrade(record.version, entry.version));
                         const icon = entry.icon || <Puzzle className="size-4" />;
                         return row(
                             entry.id,
                             upgradable ? withUpgradeDot(icon) : icon,
                             entry.name,
-                            // 有升级时标题版本展示为「本地 → 远程」,让用户看清升级到哪个版本
+                            // Show local and remote versions in the title so the update target is explicit.
                             upgradable && record ? `${record.version} → ${entry.version}` : entry.version,
                             entry.description,
                             record ? (

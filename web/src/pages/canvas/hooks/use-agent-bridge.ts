@@ -29,8 +29,8 @@ type AgentBridgeParams = {
 };
 
 /**
- * 画布与本地 Agent 的桥接：把当前画布快照与 apply/undo 能力发布到 agent store，
- * 供本地 Codex 面板读取。除 applyAgentOps（配置节点插件宿主会用到）外均为内部实现。
+ * Bridge between the canvas and local Agent: publish the current snapshot and apply/undo capabilities
+ * to the Agent store for the local Codex panel. All members except applyAgentOps are internal.
  */
 export function useAgentBridge(params: AgentBridgeParams) {
     const { projectId, title, nodes, connections, selectedNodeIds, viewport, nodesRef, connectionsRef, selectedNodeIdsRef, viewportRef, generateNodeRef, setNodes, setConnections, setSelectedNodeIds, setSelectedConnectionId, setViewport, setContextMenu } =

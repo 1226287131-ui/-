@@ -247,7 +247,7 @@ function parseImagePayload(payload: ImageApiResponse) {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(payload.msg || apiText("requestFailed"));
     }
-    // 支持 data / images / results 三种返回字段（兼容不同 API）
+    // Support data, images, and results response fields used by different APIs.
     const imageList = payload.data
         || (payload as Record<string, unknown>).images as Array<Record<string, unknown>> | undefined
         || (payload as Record<string, unknown>).results as Array<Record<string, unknown>> | undefined
@@ -259,7 +259,7 @@ function parseImagePayload(payload: ImageApiResponse) {
             .map((dataUrl) => ({ id: nanoid(), dataUrl }));
 
     if (images.length === 0) {
-        // 尝试检查是否有返回了但格式不被识别的数据
+        // Check whether the response contains data in an unrecognized format.
         const rawKeys = Object.keys(payload).filter((k) => k !== "code" && k !== "msg" && k !== "error");
         throw new Error(rawKeys.length > 0
             ? apiText("unknownImageResponse", { fields: rawKeys.join(", ") })
@@ -272,22 +272,22 @@ function parseImagePayload(payload: ImageApiResponse) {
 function readApiErrorMessage(value: unknown): string {
     if (!value) return "";
     if (typeof value === "string") {
-        // 可能是 JSON 字符串（如 error.message 被序列化）或纯文本错误
+        // The value may be serialized JSON, such as error.message, or a plain-text error.
         try {
             const parsed = JSON.parse(value);
             const inner = readApiErrorMessage(parsed) || value;
-            // 如果 JSON 解析后得到 "{}" 这种空对象，返回原始字符串
+            // Treat an empty parsed object such as "{}" as having no useful message.
             if (inner === value && typeof parsed === "object" && Object.keys(parsed).length === 0) return "";
             return inner;
         } catch {
-            // 检查是否是 HTML 错误页面
+            // Detect HTML error pages.
             if (/<[a-z][\s\S]*>/i.test(value)) return apiText("htmlError", { preview: `${value.slice(0, 80)}...` });
             return value;
         }
     }
     if (typeof value !== "object") return "";
     const payload = value as { msg?: unknown; message?: unknown; error?: unknown; detail?: unknown };
-    // error 可能是字符串或含 message 的对象
+    // error may be a string or an object containing a message.
     const errorMsg =
         typeof payload.error === "string"
             ? payload.error
@@ -305,13 +305,13 @@ function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return apiText("requestCanceled");
     if (axios.isAxiosError(error)) {
         const responseData = error.response?.data;
-        // 优先从响应体提取业务错误
+        // Prefer the API error from the response body.
         const apiMsg = readApiErrorMessage(responseData);
         if (apiMsg) return apiMsg;
-        // 响应体无法提取时用 HTTP 状态推断
+        // Infer the error from the HTTP status when the response body has no usable message.
         const statusMsg = readStatusError(error.response?.status, fallback);
         if (statusMsg) return statusMsg;
-        // 最后用 axios 自身的错误文本
+        // Fall back to Axios's own error message.
         return error.message || fallback;
     }
     if (error instanceof DOMException && error.name === "AbortError") return apiText("requestCanceled");

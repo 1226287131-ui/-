@@ -352,7 +352,7 @@ function readApiErrorMessage(value: unknown): string {
     }
     if (typeof value !== "object") return "";
     const payload = value as { msg?: unknown; message?: unknown; error?: unknown; detail?: unknown };
-    // error 可能是字符串或含 message 的对象
+    // error may be a string or an object containing a message.
     const errorMsg =
         typeof payload.error === "string"
             ? payload.error

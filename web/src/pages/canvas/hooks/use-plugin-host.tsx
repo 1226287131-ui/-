@@ -30,18 +30,18 @@ type PluginHostParams = {
 };
 
 /**
- * 插件节点宿主能力：把宿主侧的 AI 生成、画布读写、面板开关等封装成插件可调用的 host/ai 对象，
- * 并在挂载时加载已安装的远程插件。返回给画布用于渲染插件面板与工具条。
+ * Plugin node host capabilities: expose host-side AI generation, canvas access, and panel controls
+ * through plugin-callable host/ai objects. Loads installed remote plugins on mount and returns renderers for plugin panels and toolbars.
  */
 export function usePluginHost(params: PluginHostParams) {
     const { t } = useTranslation();
     const { effectiveConfig, isAiConfigReady, openConfigDialog, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
 
-    // 提供给插件节点的宿主能力(节点无关,方法接收 nodeId)
+    // Host capabilities available to plugin nodes; methods receive nodeId and are not bound to a specific node.
     const pluginAi = useMemo<CanvasPluginAi>(() => {
-        // 把插件传入的参考图(dataURL 或 URL)整理成宿主生成 API 需要的 ReferenceImage[]
+        // Convert plugin reference images (data URLs or URLs) into the ReferenceImage[] expected by the host generation API.
         const toReferences = (refs?: string[]): ReferenceImage[] => (refs || []).filter(Boolean).map((src, index) => ({ id: `plugin-ref-${index}`, name: `ref-${index}.png`, type: "image/png", dataUrl: src }));
-        // AI 配置未就绪:弹出配置弹窗并抛错,交由插件 catch 处理
+        // Open the configuration dialog and throw when AI is not configured, allowing the plugin to handle the error.
         const ensureReady = (config: AiConfig) => {
             if (!isAiConfigReady(config, config.model)) {
                 openConfigDialog(true);
@@ -74,7 +74,7 @@ export function usePluginHost(params: PluginHostParams) {
                 const text = await requestImageQuestion(config, messages, (delta) => options?.onDelta?.(delta), { signal: options?.signal });
                 return { text };
             },
-            // 列出某能力下用户已配置的模型;label 取编码值中的模型名(去掉 channel 前缀)
+            // List configured models for a capability; labels use the model name without the channel prefix.
             listModels: (capability) => selectableModelsByCapability(effectiveConfig, capability as ModelCapability | undefined).map((value) => ({ value, label: decodeChannelModel(value)?.model || value })),
             defaultModel: (capability) => buildGenerationConfig(effectiveConfig, undefined, capability).model,
         };
@@ -115,13 +115,13 @@ export function usePluginHost(params: PluginHostParams) {
         [pluginHost, theme],
     );
 
-    // 组装节点悬浮工具条按钮:插件自定义 toolbar +(声明 interactionToggle 时)宿主自动注入的「交互 ⇄ 移动」开关
+    // Build the node toolbar from plugin items and a host-provided interaction/move toggle when enabled.
     const buildNodeToolbarItems = useCallback(
         (node: CanvasNodeData): CanvasNodeToolbarItem[] => {
             const definition = getNodeDefinition(node.type);
             const ctx = buildNodeContext(pluginHost, node, theme, viewportRef.current.k);
             const custom = definition?.toolbar?.(ctx) || [];
-            // 仅在节点有内容(展示态)且非强制交互态(如编辑态)时提供「交互/移动」开关
+            // Show the interaction/move toggle only for nodes with content that are not forced into an interactive state.
             if (!definition?.interactionToggle || !node.metadata?.content || definition.forceInteractive?.(node)) return custom;
             const interactive = Boolean(node.metadata?.interactive);
             const toggle: CanvasNodeToolbarItem = {
@@ -137,7 +137,7 @@ export function usePluginHost(params: PluginHostParams) {
         [pluginHost, t, theme],
     );
 
-    // 启动时加载已安装的远程插件
+    // Load installed remote plugins on startup.
     useEffect(() => {
         void ensurePluginsLoaded();
     }, []);

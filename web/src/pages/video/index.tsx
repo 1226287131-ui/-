@@ -225,7 +225,7 @@ export default function VideoPage() {
         }
     };
 
-    // 响应 Agent 面板下发的视频命令：填入提示词，并按需自动触发生成。
+    // Handle video-generation commands from the Agent panel by setting the prompt and optionally starting generation.
     useEffect(() => {
         if (!videoCommand || videoCommand.nonce === processedCommandRef.current) return;
         processedCommandRef.current = videoCommand.nonce;
