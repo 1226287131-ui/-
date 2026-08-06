@@ -1485,6 +1485,41 @@ function InfiniteCanvasPage() {
         );
     }, []);
 
+    const duplicateBatchImage = useCallback((node: CanvasNodeData, imageId: string) => {
+        const image = node.metadata?.images?.find((item) => item.id === imageId);
+        if (!image?.content) return;
+        const id = nanoid();
+        const edge = Math.max(node.width, node.height);
+        const size = fitNodeSize(image.naturalWidth, image.naturalHeight, edge, edge);
+        const copy: CanvasNodeData = {
+            id,
+            type: CanvasNodeType.Image,
+            title: node.title,
+            position: { x: node.position.x + node.width * 2 + 96, y: node.position.y + node.height / 2 - size.height / 2 },
+            ...size,
+            metadata: {
+                content: image.content,
+                storageKey: image.storageKey,
+                naturalWidth: image.naturalWidth,
+                naturalHeight: image.naturalHeight,
+                bytes: image.bytes,
+                mimeType: image.mimeType,
+                status: NODE_STATUS_SUCCESS,
+                prompt: node.metadata?.prompt,
+                generationType: node.metadata?.generationType,
+                model: node.metadata?.model,
+                size: node.metadata?.size,
+                quality: node.metadata?.quality,
+                background: node.metadata?.background,
+                references: node.metadata?.references,
+            },
+        };
+        setNodes((prev) => [...prev, copy]);
+        setSelectedNodeIds(new Set([id]));
+        setSelectedConnectionId(null);
+        setDialogNodeId(id);
+    }, []);
+
     const openTextEditor = useCallback((node: CanvasNodeData) => {
         if (node.type !== CanvasNodeType.Text) return;
         setSelectedNodeIds(new Set([node.id]));
@@ -2817,6 +2852,7 @@ function InfiniteCanvasPage() {
                             onTitleChange={handleNodeTitleChange}
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}
+                            onDuplicateBatchImage={duplicateBatchImage}
                             onRetryBatchImage={retryBatchImage}
                             onDeleteBatchImage={deleteBatchImage}
                             onRetry={handleNodeRetry}
