@@ -975,6 +975,10 @@ function InfiniteCanvasPage() {
             setContextMenu(null);
             setNodeCreatePosition(null);
             setExpandedImageNodeId(null);
+            setHoveredNodeId(null);
+            setToolbarNodeId(null);
+            setDialogNodeId(null);
+            setEditingNodeId(null);
             if (pendingConnectionCreateRef.current) cancelPendingConnectionCreate();
             if (event.button !== 0) return;
 
