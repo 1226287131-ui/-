@@ -563,7 +563,7 @@ function TextContent({ node, theme, isEditingContent, textareaRef, mentionRefere
 }
 
 function ImageNodeContent(props: NodeContentRendererProps) {
-    if (!props.node.metadata?.content) return <EmptyImageContent {...props} />;
+    if (!props.node.metadata?.content && !props.isBatchRoot) return <EmptyImageContent {...props} />;
 
     return (
         <ImageContent
@@ -636,6 +636,8 @@ function ImageContent({
     const batchCount = images.length;
     const isBatchRoot = batchCount > 1;
     const primaryImageId = node.metadata?.primaryImageId || images[0]?.id;
+    const primaryImage = images.find((image) => image.id === primaryImageId);
+    const primaryContent = primaryImage?.content || node.metadata?.content;
 
     return (
         <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded} onToggleBatch={onToggleBatch}>
@@ -645,13 +647,17 @@ function ImageContent({
                       .map((image, index) => <ExpandedImageCard key={image.id} node={node} image={image} index={index} onSetPrimary={() => onSetBatchPrimary?.(image.id)} />)
                 : null}
             <div className="h-full w-full overflow-hidden rounded-3xl">
-                <img
-                    src={node.metadata!.content!}
-                    alt={node.title}
-                    draggable={false}
-                    onDragStart={(event) => event.preventDefault()}
-                    className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
-                />
+                {primaryContent ? (
+                    <img
+                        src={primaryContent}
+                        alt={node.title}
+                        draggable={false}
+                        onDragStart={(event) => event.preventDefault()}
+                        className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
+                    />
+                ) : (
+                    <ImageSlotStatus image={primaryImage} />
+                )}
             </div>
             {isBatchRoot ? (
                 <button
@@ -707,19 +713,33 @@ function ExpandedImageCard({ node, image, index, onSetPrimary }: { node: CanvasN
             onPointerDown={(event) => event.stopPropagation()}
             onDoubleClick={(event) => event.stopPropagation()}
         >
-            <img src={image.content} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" />
-            <button
-                type="button"
-                className="absolute right-3 top-3 flex h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-black/70 px-2.5 text-xs font-medium text-white shadow-[0_8px_20px_rgba(15,23,42,.24)] backdrop-blur-md transition hover:scale-[1.02] hover:bg-black/80"
-                style={{ color: "#fff" }}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onSetPrimary();
-                }}
-            >
-                <Star className="size-3.5 text-[#2f80ff]" />
-                {t("canvas.node.setPrimary")}
-            </button>
+            {image.content ? <img src={image.content} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} />}
+            {image.content ? (
+                <button
+                    type="button"
+                    className="absolute right-3 top-3 flex h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-black/70 px-2.5 text-xs font-medium text-white shadow-[0_8px_20px_rgba(15,23,42,.24)] backdrop-blur-md transition hover:scale-[1.02] hover:bg-black/80"
+                    style={{ color: "#fff" }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onSetPrimary();
+                    }}
+                >
+                    <Star className="size-3.5 text-[#2f80ff]" />
+                    {t("canvas.node.setPrimary")}
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function ImageSlotStatus({ image }: { image?: CanvasNodeImage }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const { t } = useTranslation();
+    const failed = image?.status === "error";
+    return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
+            {failed ? <span className="text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
+            {!failed ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
         </div>
     );
 }
