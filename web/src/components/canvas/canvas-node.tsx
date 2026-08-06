@@ -288,9 +288,8 @@ export const CanvasNode = React.memo(function CanvasNode({
         return () => {
             window.removeEventListener("mousemove", handleResizeMove);
             window.removeEventListener("mouseup", handleResizeUp);
-            if (resizeRef.current.isResizing) onResizeEnd(data.id);
         };
-    }, [data.id, handleResizeMove, handleResizeUp, onResizeEnd]);
+    }, [handleResizeMove, handleResizeUp]);
 
     return (
         <div
