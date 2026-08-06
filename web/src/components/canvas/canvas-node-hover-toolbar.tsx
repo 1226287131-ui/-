@@ -219,7 +219,7 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
     const { t } = useTranslation();
     const [view, setView] = useState<"info" | "json">("info");
     const imageBytes = node?.type === CanvasNodeType.Image && node.metadata?.content ? getDataUrlByteSize(node.metadata.content) : 0;
-    const batchCount = node?.type === CanvasNodeType.Image ? node.metadata?.batchChildIds?.length || 0 : 0;
+    const batchCount = node?.type === CanvasNodeType.Image ? node.metadata?.images?.length || 0 : 0;
     const json = useMemo(() => {
         if (!node) return "";
         return JSON.stringify(
