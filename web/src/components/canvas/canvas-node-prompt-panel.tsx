@@ -41,7 +41,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
-    const [expandedPrompt, setExpandedPrompt] = useState("");
     const [expanded, setExpanded] = useState(false);
 
     // Restore prompts only when switching nodes; preserve the current input after generation on the same node.
@@ -63,13 +62,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     };
 
     const openExpandedEditor = () => {
-        setExpandedPrompt(prompt);
         setExpanded(true);
-    };
-
-    const saveExpandedPrompt = () => {
-        updatePrompt(expandedPrompt);
-        setExpanded(false);
     };
 
     return (
@@ -147,12 +140,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     </span>
                 </Button>
             </div>
-            <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} okText={t("common.done")} cancelText={t("common.cancel")} onOk={saveExpandedPrompt} onCancel={() => setExpanded(false)} destroyOnHidden>
+            <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
                     <CanvasPromptChipInput
-                        value={expandedPrompt}
+                        value={prompt}
                         references={mentionReferences}
-                        onChange={setExpandedPrompt}
+                        onChange={updatePrompt}
                         className="thin-scrollbar h-[52dvh] min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
                         style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text }}
                         placeholder={t(`canvas.promptPanel.${mode === "image" && hasImageContent ? "editImage" : mode === "text" && hasTextContent ? "editText" : mode}`)}
