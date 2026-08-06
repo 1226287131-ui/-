@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -47,6 +47,8 @@ type CanvasNodeProps = {
     onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (nodeId: string, imageId: string) => void;
+    onRetryBatchImage?: (node: CanvasNodeData, imageId: string) => void;
+    onDeleteBatchImage?: (nodeId: string, imageId: string) => void;
     onRetry?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
@@ -70,6 +72,8 @@ type NodeContentRendererProps = {
     onGenerateImage?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: (imageId: string) => void;
+    onRetryBatchImage?: (imageId: string) => void;
+    onDeleteBatchImage?: (imageId: string) => void;
     groupChildCount: number;
 };
 
@@ -103,6 +107,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
+    onRetryBatchImage,
+    onDeleteBatchImage,
     onRetry,
     onGenerateImage,
     onViewImage,
@@ -399,6 +405,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onGenerateImage={onGenerateImage}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={(imageId) => onSetBatchPrimary?.(data.id, imageId)}
+                        onRetryBatchImage={(imageId) => onRetryBatchImage?.(data, imageId)}
+                        onDeleteBatchImage={(imageId) => onDeleteBatchImage?.(data.id, imageId)}
                         groupChildCount={groupChildCount}
                     />
                 </div>
@@ -571,6 +579,8 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             batchExpanded={props.batchExpanded}
             onToggleBatch={props.onToggleBatch}
             onSetBatchPrimary={props.onSetBatchPrimary}
+            onRetryBatchImage={props.onRetryBatchImage}
+            onDeleteBatchImage={props.onDeleteBatchImage}
         />
     );
 }
@@ -624,11 +634,15 @@ function ImageContent({
     batchExpanded,
     onToggleBatch,
     onSetBatchPrimary,
+    onRetryBatchImage,
+    onDeleteBatchImage,
 }: {
     node: CanvasNodeData;
     batchExpanded: boolean;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: (imageId: string) => void;
+    onRetryBatchImage?: (imageId: string) => void;
+    onDeleteBatchImage?: (imageId: string) => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
@@ -644,7 +658,7 @@ function ImageContent({
             {batchExpanded
                 ? images
                       .filter((image) => image.id !== primaryImageId)
-                      .map((image, index) => <ExpandedImageCard key={image.id} node={node} image={image} index={index} onSetPrimary={() => onSetBatchPrimary?.(image.id)} />)
+                      .map((image, index) => <ExpandedImageCard key={image.id} node={node} image={image} index={index} onSetPrimary={() => onSetBatchPrimary?.(image.id)} onRetry={() => onRetryBatchImage?.(image.id)} onDelete={() => onDeleteBatchImage?.(image.id)} />)
                 : null}
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 {primaryContent ? (
@@ -659,6 +673,7 @@ function ImageContent({
                     <ImageSlotStatus image={primaryImage} />
                 )}
             </div>
+            {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
             {isBatchRoot ? (
                 <button
                     type="button"
@@ -680,7 +695,7 @@ function ImageContent({
     );
 }
 
-function ExpandedImageCard({ node, image, index, onSetPrimary }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; onSetPrimary: () => void }) {
+function ExpandedImageCard({ node, image, index, onSetPrimary, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; onSetPrimary: () => void; onRetry: () => void; onDelete: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const count = node.metadata?.images?.length || 0;
@@ -728,6 +743,23 @@ function ExpandedImageCard({ node, image, index, onSetPrimary }: { node: CanvasN
                     {t("canvas.node.setPrimary")}
                 </button>
             ) : null}
+            {image.status === "error" ? <BatchImageFailureActions placement="right" onRetry={onRetry} onDelete={onDelete} /> : null}
+        </div>
+    );
+}
+
+function BatchImageFailureActions({ placement, onRetry, onDelete }: { placement: "left" | "right"; onRetry: () => void; onDelete: () => void }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const { t } = useTranslation();
+    return (
+        <div className={`absolute top-3 z-30 flex items-center gap-1.5 ${placement === "left" ? "left-3" : "right-3"}`}>
+            <button type="button" className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium shadow-sm transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onRetry())}>
+                <RefreshCw className="size-3.5" />
+                {t("canvas.node.retry")}
+            </button>
+            <button type="button" className="grid size-8 place-items-center rounded-lg border shadow-sm transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onDelete())} aria-label={t("common.delete")} title={t("common.delete")}>
+                <Trash2 className="size-3.5" />
+            </button>
         </div>
     );
 }
