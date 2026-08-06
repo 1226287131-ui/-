@@ -50,11 +50,19 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Control") setIsControlPressed(true);
-            if (event.code === "Space" && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) setIsSpacePressed(true);
+            if (event.code !== "Space") return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true']")) return;
+            event.preventDefault();
+            setIsSpacePressed(true);
         };
 
         const handleKeyUp = (event: KeyboardEvent) => {
-            if (event.code === "Space") setIsSpacePressed(false);
+            if (event.code === "Space") {
+                const target = event.target instanceof Element ? event.target : null;
+                if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true']"))) event.preventDefault();
+                setIsSpacePressed(false);
+            }
             if (event.key === "Control") setIsControlPressed(false);
         };
 
@@ -103,7 +111,9 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         if (target?.closest("[data-canvas-no-zoom]")) return;
         if (target?.closest("[data-connection-create-menu]")) return;
         const isBackgroundClick = !target?.closest("[data-node-id],[data-connection-id]");
-        const shouldPan = event.button === 1 || (event.button === 0 && (tool === "pan" || event.ctrlKey || isSpacePressed));
+        const temporaryTool = event.ctrlKey || isSpacePressed;
+        const activeTool = temporaryTool ? (tool === "select" ? "pan" : "select") : tool;
+        const shouldPan = event.button === 1 || (event.button === 0 && activeTool === "pan");
 
         if (shouldPan) {
             event.preventDefault();
@@ -193,7 +203,9 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
         return () => container.removeEventListener("wheel", preventWheelScroll);
     }, [containerRef]);
 
-    const cursor = isPanning ? "grabbing" : tool === "pan" || isControlPressed || isSpacePressed ? "grab" : undefined;
+    const temporaryTool = isControlPressed || isSpacePressed;
+    const activeTool = temporaryTool ? (tool === "select" ? "pan" : "select") : tool;
+    const cursor = isPanning ? "grabbing" : activeTool === "pan" ? "grab" : undefined;
 
     return (
         <div

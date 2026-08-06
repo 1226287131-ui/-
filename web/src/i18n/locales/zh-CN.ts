@@ -290,6 +290,7 @@ export default {
         shortcut: {
             dragCanvas: "拖动画布",
             pan: "平移视图",
+            toggleTool: "临时切换选择 / 移动",
             wheel: "滚轮",
             zoom: "缩放画布",
             zoomSlider: "缩放滑杆",

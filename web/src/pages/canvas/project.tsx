@@ -2867,7 +2867,7 @@ function InfiniteCanvasPage() {
                                 height: Math.abs(selectionBox.currentWorldY - selectionBox.startWorldY),
                             }}
                         >
-                            <rect width="100%" height="100%" fill={theme.canvas.selectionFill} stroke={theme.canvas.selectionStroke} strokeWidth={1.5 / viewport.k} strokeDasharray={`${10 / viewport.k} ${6 / viewport.k}`} />
+                            <rect width="100%" height="100%" fill={theme.canvas.selectionFill} stroke={theme.canvas.selectionStroke} strokeOpacity={0.55} strokeWidth={1 / viewport.k} strokeDasharray={`${6 / viewport.k} ${4 / viewport.k}`} />
                         </svg>
                     ) : null}
                     {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
