@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Copy, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -48,6 +48,7 @@ type CanvasNodeProps = {
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (nodeId: string, imageId: string) => void;
     onDuplicateBatchImage?: (node: CanvasNodeData, imageId: string) => void;
+    onDownloadBatchImage?: (node: CanvasNodeData, imageId: string) => void;
     onRetryBatchImage?: (node: CanvasNodeData, imageId: string) => void;
     onDeleteBatchImage?: (nodeId: string, imageId: string) => void;
     onRetry?: (node: CanvasNodeData) => void;
@@ -74,6 +75,7 @@ type NodeContentRendererProps = {
     onToggleBatch?: () => void;
     onSetBatchPrimary?: (imageId: string) => void;
     onDuplicateBatchImage?: (imageId: string) => void;
+    onDownloadBatchImage?: (imageId: string) => void;
     onRetryBatchImage?: (imageId: string) => void;
     onDeleteBatchImage?: (imageId: string) => void;
     groupChildCount: number;
@@ -110,6 +112,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onToggleBatch,
     onSetBatchPrimary,
     onDuplicateBatchImage,
+    onDownloadBatchImage,
     onRetryBatchImage,
     onDeleteBatchImage,
     onRetry,
@@ -408,6 +411,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={(imageId) => onSetBatchPrimary?.(data.id, imageId)}
                         onDuplicateBatchImage={(imageId) => onDuplicateBatchImage?.(data, imageId)}
+                        onDownloadBatchImage={(imageId) => onDownloadBatchImage?.(data, imageId)}
                         onRetryBatchImage={(imageId) => onRetryBatchImage?.(data, imageId)}
                         onDeleteBatchImage={(imageId) => onDeleteBatchImage?.(data.id, imageId)}
                         groupChildCount={groupChildCount}
@@ -583,6 +587,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             onToggleBatch={props.onToggleBatch}
             onSetBatchPrimary={props.onSetBatchPrimary}
             onDuplicateBatchImage={props.onDuplicateBatchImage}
+            onDownloadBatchImage={props.onDownloadBatchImage}
             onRetryBatchImage={props.onRetryBatchImage}
             onDeleteBatchImage={props.onDeleteBatchImage}
         />
@@ -639,6 +644,7 @@ function ImageContent({
     onToggleBatch,
     onSetBatchPrimary,
     onDuplicateBatchImage,
+    onDownloadBatchImage,
     onRetryBatchImage,
     onDeleteBatchImage,
 }: {
@@ -647,6 +653,7 @@ function ImageContent({
     onToggleBatch?: () => void;
     onSetBatchPrimary?: (imageId: string) => void;
     onDuplicateBatchImage?: (imageId: string) => void;
+    onDownloadBatchImage?: (imageId: string) => void;
     onRetryBatchImage?: (imageId: string) => void;
     onDeleteBatchImage?: (imageId: string) => void;
 }) {
@@ -664,7 +671,7 @@ function ImageContent({
             {batchExpanded
                 ? images
                       .filter((image) => image.id !== primaryImageId)
-                      .map((image, index) => <ExpandedImageCard key={image.id} node={node} image={image} index={index} onSetPrimary={() => onSetBatchPrimary?.(image.id)} onDuplicate={() => onDuplicateBatchImage?.(image.id)} onRetry={() => onRetryBatchImage?.(image.id)} onDelete={() => onDeleteBatchImage?.(image.id)} />)
+                      .map((image, index) => <ExpandedImageCard key={image.id} node={node} image={image} index={index} onSetPrimary={() => onSetBatchPrimary?.(image.id)} onDuplicate={() => onDuplicateBatchImage?.(image.id)} onDownload={() => onDownloadBatchImage?.(image.id)} onRetry={() => onRetryBatchImage?.(image.id)} onDelete={() => onDeleteBatchImage?.(image.id)} />)
                 : null}
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 {primaryContent ? (
@@ -680,6 +687,12 @@ function ImageContent({
                 )}
             </div>
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
+            {primaryImage?.content ? (
+                <button type="button" className="absolute left-2.5 top-2.5 z-30 flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownloadBatchImage?.(primaryImage.id))}>
+                    <Download className="size-3" />
+                    {t("common.download")}
+                </button>
+            ) : null}
             {isBatchRoot ? (
                 <button
                     type="button"
@@ -701,15 +714,16 @@ function ImageContent({
     );
 }
 
-function ExpandedImageCard({ node, image, index, onSetPrimary, onDuplicate, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; onSetPrimary: () => void; onDuplicate: () => void; onRetry: () => void; onDelete: () => void }) {
+function ExpandedImageCard({ node, image, index, onSetPrimary, onDuplicate, onDownload, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; onSetPrimary: () => void; onDuplicate: () => void; onDownload: () => void; onRetry: () => void; onDelete: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const count = node.metadata?.images?.length || 0;
-    const rows = Math.ceil(count / 2);
-    const rootSlot = (rows - 1) * 2;
+    const columns = Math.min(count, 4);
+    const rows = Math.ceil(count / columns);
+    const rootSlot = (rows - 1) * columns;
     const slot = index >= rootSlot ? index + 1 : index;
-    const column = slot % 2;
-    const row = Math.floor(slot / 2);
+    const column = slot % columns;
+    const row = Math.floor(slot / columns);
     const x = column * (node.width + 18);
     const y = (row - rows + 1) * (node.height + 18);
 
@@ -736,14 +750,18 @@ function ExpandedImageCard({ node, image, index, onSetPrimary, onDuplicate, onRe
         >
             {image.content ? <img src={image.content} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} />}
             {image.content ? (
-                <div className="absolute right-3 top-3 flex items-center gap-1.5">
-                    <button type="button" className="flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-medium shadow-[0_8px_20px_rgba(15,23,42,.18)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} onClick={(event) => (event.stopPropagation(), onDuplicate())}>
-                        <Copy className="size-3.5" />
-                        {t("canvas.node.createCopy")}
+                <div className="absolute inset-x-2 top-2 flex items-center gap-1">
+                    <button type="button" className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownload())}>
+                        <Download className="size-3 shrink-0" />
+                        <span className="truncate">{t("common.download")}</span>
                     </button>
-                    <button type="button" className="flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-medium shadow-[0_8px_20px_rgba(15,23,42,.18)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} onClick={(event) => (event.stopPropagation(), onSetPrimary())}>
-                        <Star className="size-3.5" style={{ color: selectionBlue }} />
-                        {t("canvas.node.setPrimary")}
+                    <button type="button" className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("canvas.node.createCopy")} onClick={(event) => (event.stopPropagation(), onDuplicate())}>
+                        <Copy className="size-3 shrink-0" />
+                        <span className="truncate">{t("canvas.node.createCopy")}</span>
+                    </button>
+                    <button type="button" className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("canvas.node.setPrimary")} onClick={(event) => (event.stopPropagation(), onSetPrimary())}>
+                        <Star className="size-3 shrink-0" style={{ color: selectionBlue }} />
+                        <span className="truncate">{t("canvas.node.setPrimary")}</span>
                     </button>
                 </div>
             ) : null}
