@@ -12,7 +12,7 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint } from "@/lib/seedance-video";
-import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
@@ -124,11 +124,11 @@ export default function VideoPage() {
         if (profile.kind === "generic") return;
         const seconds = normalizeVideoSecondsForModel(model, effectiveConfig.videoSeconds);
         const size = normalizeVideoSizeForModel(model, effectiveConfig.size);
-        const quality = normalizeVideoQualityForModel(model, effectiveConfig.vquality);
+        const quality = normalizeVideoQualityForReferences(model, effectiveConfig.vquality, references.length);
         if (effectiveConfig.videoSeconds !== seconds) updateConfig("videoSeconds", seconds);
         if (effectiveConfig.size !== size) updateConfig("size", size);
         if (effectiveConfig.vquality !== quality) updateConfig("vquality", quality);
-    }, [effectiveConfig, model, updateConfig]);
+    }, [effectiveConfig, model, references.length, updateConfig]);
 
     const addReferences = async (files?: FileList | null) => {
         const selectedFiles = Array.from(files || []);
@@ -569,7 +569,7 @@ export default function VideoPage() {
                             </div>
 
                             <div className="hidden gap-4 sm:grid sm:grid-cols-2">
-                                <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                                <GenerationSettings config={effectiveConfig} model={model} referenceImageCount={references.length} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                             </div>
                         </div>
 
@@ -630,7 +630,7 @@ export default function VideoPage() {
             </Drawer>
             <Drawer title="参数" placement="bottom" height="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="grid grid-cols-2 gap-3 pb-4">
-                    <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                    <GenerationSettings config={effectiveConfig} model={model} referenceImageCount={references.length} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                 </div>
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
@@ -642,7 +642,7 @@ export default function VideoPage() {
     );
 }
 
-function GenerationSettings({ config, model, updateConfig, openConfigDialog }: { config: AiConfig; model: string; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
+function GenerationSettings({ config, model, referenceImageCount, updateConfig, openConfigDialog }: { config: AiConfig; model: string; referenceImageCount: number; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
     return (
@@ -652,7 +652,7 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                 <ModelPicker config={config} value={model} onChange={(value) => updateConfig("videoModel", value)} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
             </label>
             <div className="col-span-2">
-                <VideoSettingsPanel config={config} model={model} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" />
+                <VideoSettingsPanel config={config} model={model} referenceImageCount={referenceImageCount} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" />
             </div>
         </>
     );

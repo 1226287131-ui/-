@@ -5,7 +5,7 @@ import { Button } from "antd";
 
 import { VideoSettingsPanel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -15,16 +15,17 @@ type CanvasVideoSettingsPopoverProps = {
     onConfigChange: (key: keyof AiConfig, value: string) => void;
     buttonClassName?: string;
     placement?: "topLeft" | "top" | "topRight" | "bottomLeft" | "bottom" | "bottomRight";
+    referenceImageCount?: number;
 };
 
-export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClassName, placement = "topLeft" }: CanvasVideoSettingsPopoverProps) {
+export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClassName, placement = "topLeft", referenceImageCount = 0 }: CanvasVideoSettingsPopoverProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const model = modelOptionName(config.model || config.videoModel);
     const profile = getVideoModelProfile(model);
     const isVideoV2Full = profile.kind === "video-v2-full";
     const seconds = isVideoV2Full ? "15" : profile.kind === "generic" ? config.videoSeconds : normalizeVideoSecondsForModel(model, config.videoSeconds);
     const size = profile.kind === "generic" ? config.size : normalizeVideoSizeForModel(model, config.size);
-    const quality = isVideoV2Full ? "720p" : profile.kind === "generic" ? config.vquality : normalizeVideoQualityForModel(model, config.vquality);
+    const quality = isVideoV2Full ? "720p" : profile.kind === "generic" ? config.vquality : normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
@@ -51,7 +52,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
         };
     }, [open]);
 
-    const panel = open && buttonRect ? <VideoSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} onConfigChange={onConfigChange} /> : null;
+    const panel = open && buttonRect ? <VideoSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} referenceImageCount={referenceImageCount} onConfigChange={onConfigChange} /> : null;
 
     return (
         <>
@@ -73,6 +74,7 @@ function VideoSettingsPortal({
     placement,
     theme,
     config,
+    referenceImageCount,
     onConfigChange,
 }: {
     buttonRect: DOMRect;
@@ -80,6 +82,7 @@ function VideoSettingsPortal({
     placement: CanvasVideoSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     config: AiConfig;
+    referenceImageCount: number;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
 }) {
     const width = 356;
@@ -112,7 +115,7 @@ function VideoSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <VideoSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
+            <VideoSettingsPanel config={config} referenceImageCount={referenceImageCount} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
         </div>,
         document.body,
     );

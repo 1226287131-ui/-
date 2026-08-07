@@ -138,6 +138,11 @@ export function normalizeVideoQualityForModel(model: string, value: string) {
     return value;
 }
 
+export function normalizeVideoQualityForReferences(model: string, value: string, imageCount = 0) {
+    const quality = normalizeVideoQualityForModel(model, value);
+    return getVideoModelProfile(model).kind === "grok" && imageCount > 1 && quality === "1080p" ? "720p" : quality;
+}
+
 export function normalizeVideoSettingsForModel(model: string, settings: { seconds: string; size: string; quality: string }) {
     const profile = getVideoModelProfile(model);
     if (profile.kind === "generic") return settings;

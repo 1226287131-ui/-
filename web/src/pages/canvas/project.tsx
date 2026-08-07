@@ -12,6 +12,7 @@ import { uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { normalizeVideoQualityForReferences } from "@/lib/video-model";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -1980,7 +1981,7 @@ function InfiniteCanvasPage() {
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
-            const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
+            let generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
@@ -2034,6 +2035,7 @@ function InfiniteCanvasPage() {
             const generationContext = await hydrateNodeGenerationContext(
                 buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt),
             );
+            if (mode === "video") generationConfig = { ...generationConfig, vquality: normalizeVideoQualityForReferences(generationConfig.model, generationConfig.vquality, generationContext.referenceImages.length) };
             const effectivePrompt = generationContext.prompt.trim();
             if (runController.signal.aborted) {
                 finishGenerationRequest(nodeId, runController);
@@ -2434,6 +2436,7 @@ function InfiniteCanvasPage() {
             setRunningNodeId(node.id);
             setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
             const controller = startGenerationRequest(node.id, sourceNode.id, node.id);
+            const videoGenerationConfig = node.type === CanvasNodeType.Video ? { ...generationConfig, vquality: normalizeVideoQualityForReferences(generationConfig.model, generationConfig.vquality, retryImages.length) } : generationConfig;
 
             try {
                 if (node.type === CanvasNodeType.Text) {
@@ -2452,7 +2455,7 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Video) {
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>
@@ -2466,12 +2469,12 @@ function InfiniteCanvasPage() {
                                           ...item.metadata,
                                           ...videoMetadata(video),
                                           prompt,
-                                          model: generationConfig.model,
-                                          size: generationConfig.size,
-                                          seconds: generationConfig.videoSeconds,
-                                          vquality: generationConfig.vquality,
-                                          generateAudio: generationConfig.videoGenerateAudio,
-                                          watermark: generationConfig.videoWatermark,
+                                          model: videoGenerationConfig.model,
+                                          size: videoGenerationConfig.size,
+                                          seconds: videoGenerationConfig.videoSeconds,
+                                          vquality: videoGenerationConfig.vquality,
+                                          generateAudio: videoGenerationConfig.videoGenerateAudio,
+                                          watermark: videoGenerationConfig.videoWatermark,
                                       },
                                   }
                                 : item,

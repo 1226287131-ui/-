@@ -2,7 +2,7 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/lib/image-utils";
-import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -114,21 +114,22 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
+    const requestConfig = { ...config, vquality: normalizeVideoQualityForReferences(model, config.vquality, references.length) };
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const result = videoPluginResult(
         await runModelPlugin({
             capability: "video",
             script,
-            config,
+            config: requestConfig,
             prompt,
             images: refs,
             params: {
-                seconds: normalizeVideoSeconds(config.videoSeconds),
-                size: normalizeVideoSize(config.size),
-                resolution: normalizeVideoResolution(config.vquality),
-                ratio: config.size,
-                generateAudio: boolConfig(config.videoGenerateAudio, true),
-                watermark: boolConfig(config.videoWatermark, false),
+                seconds: normalizeVideoSeconds(requestConfig.videoSeconds),
+                size: normalizeVideoSize(requestConfig.size),
+                resolution: normalizeVideoResolution(requestConfig.vquality),
+                ratio: requestConfig.size,
+                generateAudio: boolConfig(requestConfig.videoGenerateAudio, true),
+                watermark: boolConfig(requestConfig.videoWatermark, false),
             },
             signal: options?.signal,
         }),
@@ -262,7 +263,7 @@ async function createGrokTask(config: AiConfig, model: string, prompt: string, r
     body.append("prompt", prompt);
     body.append("seconds", normalizeVideoSecondsForModel(model, config.videoSeconds));
     body.append("aspect_ratio", normalizeVideoRatioForModel(model, config.size));
-    body.append("resolution", normalizeVideoQualityForModel(model, config.vquality));
+    body.append("resolution", normalizeVideoQualityForReferences(model, config.vquality, references.length));
     for (const reference of references) {
         const file = dataUrlToFile({ ...reference, dataUrl: await imageToDataUrl(reference) });
         if (!file.size) throw new Error("Grok 参考图不能为空");

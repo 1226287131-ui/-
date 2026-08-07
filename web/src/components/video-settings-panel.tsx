@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
 import {
     boolConfig,
     isSeedanceFastModel,
@@ -45,9 +45,10 @@ type VideoSettingsPanelProps = {
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
+    referenceImageCount?: number;
 };
 
-export function VideoSettingsPanel({ config, model: selectedModel, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
+export function VideoSettingsPanel({ config, model: selectedModel, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", referenceImageCount = 0 }: VideoSettingsPanelProps) {
     const videoModel = selectedModel || config.model || config.videoModel;
     const videoConfig = { ...config, model: videoModel };
     if (isSeedanceVideoConfig(videoConfig)) {
@@ -57,7 +58,7 @@ export function VideoSettingsPanel({ config, model: selectedModel, onConfigChang
     const model = modelOptionName(videoModel);
     const profile = getVideoModelProfile(model);
     if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "video-v2-full" || profile.kind === "grok") {
-        return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+        return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} referenceImageCount={referenceImageCount} />;
     }
 
     const seconds = config.videoSeconds || "6";
@@ -121,12 +122,14 @@ export function VideoSettingsPanel({ config, model: selectedModel, onConfigChang
     );
 }
 
-function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps & { model: string }) {
+function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className, referenceImageCount = 0 }: VideoSettingsPanelProps & { model: string }) {
     const profile = getVideoModelProfile(model);
     const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
     const ratio = normalizeVideoRatioForModel(model, config.size);
-    const quality = normalizeVideoQualityForModel(model, config.vquality);
     const isGrok = profile.kind === "grok";
+    const hasMultipleReferenceImages = isGrok && referenceImageCount > 1;
+    const quality = normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
+    const qualityOptions = hasMultipleReferenceImages ? profile.qualityOptions.filter((item) => item !== "1080p") : profile.qualityOptions;
     const isVideoV2Full = profile.kind === "video-v2-full";
     const ratioLabels: Record<string, string> = { "21:9": "超宽", "16:9": "横屏", "9:16": "竖屏", "1:1": "方形", "4:3": "标准", "3:4": "长幅", "2:3": "2:3", "3:2": "3:2" };
 
@@ -162,12 +165,13 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                 {profile.kind === "video-v2" || isGrok ? (
                     <SettingGroup title="分辨率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-2.5">
-                            {profile.qualityOptions.map((item) => (
+                            {qualityOptions.map((item) => (
                                 <OptionPill key={item} selected={quality === item} theme={theme} onClick={() => onConfigChange("vquality", item)}>
                                     {item}
                                 </OptionPill>
                             ))}
                         </div>
+                        {hasMultipleReferenceImages ? <div className="text-[11px] leading-4 opacity-55">多参考图仅支持 480p 或 720p。</div> : null}
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title="秒数" color={theme.node.muted}>
