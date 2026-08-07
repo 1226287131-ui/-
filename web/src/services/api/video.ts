@@ -2,7 +2,7 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/lib/image-utils";
-import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -86,7 +86,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (profile.kind === "video-v1") return createVideoV1Task(requestConfig, selectedModel, prompt, references, options);
     if (profile.kind === "video-v2-full") return createVideoV2FullTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "video-v2") return createVideoV2Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, prompt, references, options);
+    if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
@@ -232,11 +232,7 @@ async function createVideoV2FullTask(config: AiConfig, model: string, prompt: st
     const profile = getVideoModelProfile(modelName);
     if (!prompt.trim()) throw new Error("video-v2-满血兜底版需要填写提示词");
     if (Array.from(prompt).length > 4000) throw new Error("video-v2-满血兜底版提示词不能超过 4000 个字符");
-    const media = await resolveReferenceMediaUrls(
-        references.slice(0, profile.maxImages),
-        videoReferences.slice(0, profile.maxVideos),
-        audioReferences.slice(0, profile.maxAudios),
-    );
+    const media = await resolveReferenceMediaUrls(references.slice(0, profile.maxImages), videoReferences.slice(0, profile.maxVideos), audioReferences.slice(0, profile.maxAudios));
     const payload = {
         model: modelName,
         prompt: normalizeVideoV2Prompt(prompt, { images: media.images.length, videos: media.videos.length, audios: media.audios.length }),
@@ -257,15 +253,23 @@ async function createVideoV2FullTask(config: AiConfig, model: string, prompt: st
     }
 }
 
-async function createGrokTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
+async function createGrokTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    if (!prompt.trim()) throw new Error("Grok 需要填写视频提示词");
+    if (references.length > 1) throw new Error("Grok 最多支持 1 张 PNG 格式的参考图");
+    if (videoReferences.length) throw new Error("Grok 不支持参考视频");
+    if (audioReferences.length) throw new Error("Grok 不支持参考音频");
     const body = new FormData();
     body.append("model", modelOptionName(model));
     body.append("prompt", prompt);
     body.append("seconds", normalizeVideoSecondsForModel(model, config.videoSeconds));
-    body.append("size", normalizeVideoSizeForModel(model, config.size));
-    body.append("quality", "high");
-    const files = await Promise.all(references.slice(0, getVideoModelProfile(model).maxImages).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => body.append("input_reference", file));
+    body.append("aspect_ratio", normalizeVideoRatioForModel(model, config.size));
+    body.append("resolution", normalizeVideoQualityForModel(model, config.vquality));
+    const reference = references[0];
+    if (reference) {
+        const file = dataUrlToFile({ ...reference, dataUrl: await imageToDataUrl(reference) });
+        if (file.type.toLowerCase() !== "image/png") throw new Error("Grok 仅支持上传 1 张 PNG 格式的参考图");
+        body.append("input_reference", file);
+    }
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         const id = taskIdOf(created);

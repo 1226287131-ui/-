@@ -58,16 +58,16 @@ const VIDEO_V2_FULL_PROFILE: VideoModelProfile = {
 
 const GROK_PROFILE: VideoModelProfile = {
     kind: "grok",
-    seconds: [6, 10, 12, 16, 20],
-    ratios: ["16:9", "9:16"],
-    maxImages: 7,
+    seconds: Array.from({ length: 15 }, (_, index) => index + 1),
+    ratios: ["16:9", "9:16", "1:1", "4:3", "3:4", "2:3", "3:2"],
+    maxImages: 1,
     maxVideos: 0,
     maxAudios: 0,
     imageMaxBytes: 20 * 1024 * 1024,
     videoMaxBytes: 0,
     audioMaxBytes: 0,
-    resolution: "fixed",
-    qualityOptions: ["high"],
+    resolution: "selectable",
+    qualityOptions: ["480p", "720p", "1080p"],
 };
 
 const GENERIC_PROFILE: VideoModelProfile = {
@@ -96,7 +96,9 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
 export function normalizeVideoSecondsForModel(model: string, value: string | number) {
     const profile = getVideoModelProfile(model);
     const requested = Number(value);
+    if (profile.kind === "grok" && Number.isFinite(requested)) return String(Math.min(15, Math.max(1, Math.floor(requested))));
     if (Number.isFinite(requested) && profile.seconds.includes(Math.floor(requested))) return String(Math.floor(requested));
+    if (profile.kind === "grok") return "5";
     const fallback = profile.seconds[0] || 6;
     return String(fallback);
 }
@@ -107,17 +109,18 @@ export function normalizeVideoRatioForModel(model: string, value: string) {
     const match = String(value || "").match(/^(\d+)x(\d+)$/);
     if (match) {
         const ratio = Number(match[1]) / Number(match[2]);
-        return profile.ratios.reduce((best, item) => {
-            const [width, height] = item.split(":").map(Number);
-            return Math.abs(width / height - ratio) < Math.abs(best.ratio - ratio) ? { item, ratio: width / height } : best;
-        }, { item: profile.ratios[0] || "16:9", ratio: 16 / 9 }).item;
+        return profile.ratios.reduce(
+            (best, item) => {
+                const [width, height] = item.split(":").map(Number);
+                return Math.abs(width / height - ratio) < Math.abs(best.ratio - ratio) ? { item, ratio: width / height } : best;
+            },
+            { item: profile.ratios[0] || "16:9", ratio: 16 / 9 },
+        ).item;
     }
     return profile.ratios[0] || "16:9";
 }
 
 export function normalizeVideoSizeForModel(model: string, value: string) {
-    const profile = getVideoModelProfile(model);
-    if (profile.kind === "grok") return value === "720x1280" ? "720x1280" : "1280x720";
     return normalizeVideoRatioForModel(model, value);
 }
 
@@ -125,9 +128,11 @@ export function normalizeVideoQualityForModel(model: string, value: string) {
     const profile = getVideoModelProfile(model);
     if (profile.kind === "video-v1") return "720p";
     if (profile.kind === "video-v2-full") return "720p";
-    if (profile.kind === "grok") return "high";
-    if (profile.kind === "video-v2") {
-        const normalized = String(value || "").trim().toLowerCase().replace(/p$/, "");
+    if (profile.kind === "video-v2" || profile.kind === "grok") {
+        const normalized = String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/p$/, "");
         return ["480", "720", "1080"].includes(normalized) ? `${normalized}p` : "720p";
     }
     return value;
