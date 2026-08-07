@@ -105,7 +105,8 @@ export default function VideoPage() {
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const canGenerate = Boolean(prompt.trim());
     const modelProfile = getVideoModelProfile(modelOptionName(model));
-    const grokReferenceImageOnly = modelProfile.kind === "grok";
+    const isGrok = modelProfile.kind === "grok";
+    const referenceImageLimitLabel = Number.isFinite(modelProfile.maxImages) ? `最多 ${modelProfile.maxImages} 张` : "支持多张上传";
 
     useEffect(() => {
         if (!running || !startedAt) return;
@@ -132,7 +133,7 @@ export default function VideoPage() {
     const addReferences = async (files?: FileList | null) => {
         const selectedFiles = Array.from(files || []);
         const imageFiles = selectedFiles
-            .filter((file) => file.type.startsWith("image/") && (!grokReferenceImageOnly || file.type.toLowerCase() === "image/png") && modelProfile.maxImages > 0 && file.size <= modelProfile.imageMaxBytes)
+            .filter((file) => file.type.startsWith("image/") && file.size > 0 && modelProfile.maxImages > 0 && file.size <= modelProfile.imageMaxBytes)
             .slice(0, Math.max(0, modelProfile.maxImages - references.length));
         const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && modelProfile.maxVideos > 0 && file.size <= modelProfile.videoMaxBytes).slice(0, Math.max(0, modelProfile.maxVideos - videoReferences.length));
         const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && modelProfile.maxAudios > 0 && file.size <= modelProfile.audioMaxBytes).slice(0, Math.max(0, modelProfile.maxAudios - audioReferences.length));
@@ -144,16 +145,15 @@ export default function VideoPage() {
                 (!file.type.startsWith("image/") && !file.type.startsWith("video/") && !isSupportedAudioFile(file)),
         );
         if (ignoredUnsupported) message.warning("当前模型不支持所选参考素材类型");
-        if (grokReferenceImageOnly && selectedFiles.some((file) => file.type.startsWith("image/") && file.type.toLowerCase() !== "image/png")) message.warning("Grok 仅支持 PNG 格式的参考图");
+        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size === 0)) message.warning("已忽略空的参考图");
         if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > modelProfile.imageMaxBytes)) message.warning(`已忽略超过 ${Math.round(modelProfile.imageMaxBytes / 1024 / 1024)}MB 的参考图`);
         if (selectedFiles.some((file) => file.type.startsWith("video/") && modelProfile.maxVideos > 0 && file.size > modelProfile.videoMaxBytes)) message.warning(`已忽略超过 ${Math.round(modelProfile.videoMaxBytes / 1024 / 1024)}MB 的参考视频`);
         if (selectedFiles.some((file) => isSupportedAudioFile(file) && modelProfile.maxAudios > 0 && file.size > modelProfile.audioMaxBytes)) message.warning(`已忽略超过 ${Math.round(modelProfile.audioMaxBytes / 1024 / 1024)}MB 的参考音频`);
-        const nextReferences = await Promise.all(
-            imageFiles.map(async (file) => {
-                const image = await uploadImage(file);
-                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
-            }),
-        );
+        const nextReferences: ReferenceImage[] = [];
+        for (const file of imageFiles) {
+            const image = await uploadImage(file);
+            nextReferences.push({ id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey });
+        }
         const nextVideoReferences = await Promise.all(
             videoFiles.map(async (file) => {
                 const video = await uploadMediaFile(file, "video-reference");
@@ -179,18 +179,16 @@ export default function VideoPage() {
         try {
             const items = await navigator.clipboard.read();
             const blobs = await Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).map((type) => item.getType(type))));
-            const supportedBlobs = grokReferenceImageOnly ? blobs.filter((blob) => blob.type.toLowerCase() === "image/png") : blobs;
-            if (!supportedBlobs.length) {
-                if (grokReferenceImageOnly && blobs.length) message.error("Grok 仅支持 PNG 格式的参考图");
-                else message.error("剪切板里没有可读取的图片");
+            if (!blobs.length) {
+                message.error("剪切板里没有可读取的图片");
                 return;
             }
-            const nextReferences = await Promise.all(
-                supportedBlobs.slice(0, Math.max(0, modelProfile.maxImages - references.length)).map(async (blob, index) => {
-                    const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
-                }),
-            );
+            const nextReferences: ReferenceImage[] = [];
+            for (const [index, blob] of blobs.filter((blob) => blob.size > 0).slice(0, Math.max(0, modelProfile.maxImages - references.length)).entries()) {
+                const image = await uploadImage(blob);
+                nextReferences.push({ id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey });
+            }
+            if (blobs.some((blob) => blob.size === 0)) message.warning("已忽略空的参考图");
             setReferences((value) => [...value, ...nextReferences].slice(0, modelProfile.maxImages));
             message.success(`已读取 ${nextReferences.length} 张参考图`);
         } catch {
@@ -306,10 +304,6 @@ export default function VideoPage() {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
             const stored = await uploadImage(payload.dataUrl);
-            if (grokReferenceImageOnly && stored.mimeType.toLowerCase() !== "image/png") {
-                message.error("Grok 仅支持 PNG 格式的参考图");
-                return;
-            }
             setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, modelProfile.maxImages));
         } else if (payload.kind === "video") {
             setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, modelProfile.maxVideos));
@@ -390,7 +384,7 @@ export default function VideoPage() {
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
-                await delay(log.task.provider === "seedance" ? 5000 : 2500);
+                await delay(log.task.provider === "seedance" || log.task.provider === "grok" ? 5000 : 2500);
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
@@ -472,7 +466,7 @@ export default function VideoPage() {
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <div>
                                         <span className="text-base font-semibold">参考图</span>
-                                        {grokReferenceImageOnly ? <div className="mt-0.5 text-xs text-stone-500 dark:text-stone-400">Grok 仅支持 1 张 PNG 参考图</div> : null}
+                                        {isGrok ? <div className="mt-0.5 text-xs text-stone-500 dark:text-stone-400">支持多参考图上传，提交时会按顺序发送</div> : null}
                                     </div>
                                     <div className="flex gap-2">
                                         <Button size="small" icon={<ClipboardPaste className="size-3.5" />} onClick={() => void addReferencesFromClipboard()}>
@@ -499,7 +493,7 @@ export default function VideoPage() {
                                             </button>
                                         </div>
                                     ))}
-                                    {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图，最多 {modelProfile.maxImages} 张</div> : null}
+                                    {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图，{referenceImageLimitLabel}</div> : null}
                                 </div>
                             </div>
 
@@ -615,8 +609,8 @@ export default function VideoPage() {
             <input
                 ref={fileInputRef}
                 type="file"
-                accept={grokReferenceImageOnly ? "image/png" : "image/*,video/mp4,video/webm,video/quicktime,audio/*,.mp3,.wav,.m4a,.aac,.ogg"}
-                multiple={!grokReferenceImageOnly}
+                accept={isGrok ? "image/*" : "image/*,video/mp4,video/webm,video/quicktime,audio/*,.mp3,.wav,.m4a,.aac,.ogg"}
+                multiple
                 className="hidden"
                 onChange={(event) => {
                     void addReferences(event.target.files);
@@ -996,7 +990,6 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
 function validateVideoModelReferences(model: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
     const profile = getVideoModelProfile(modelOptionName(model));
     if (references.length > profile.maxImages) return `当前模型最多支持 ${profile.maxImages} 张参考图`;
-    if (profile.kind === "grok" && references.some((reference) => reference.type.toLowerCase() !== "image/png")) return "Grok 仅支持 PNG 格式的参考图";
     if (videoReferences.length > profile.maxVideos) return profile.maxVideos ? `当前模型最多支持 ${profile.maxVideos} 个参考视频` : "当前模型不支持参考视频";
     if (audioReferences.length > profile.maxAudios) return profile.maxAudios ? `当前模型最多支持 ${profile.maxAudios} 个参考音频` : "当前模型不支持参考音频";
     return "";

@@ -60,10 +60,10 @@ const GROK_PROFILE: VideoModelProfile = {
     kind: "grok",
     seconds: Array.from({ length: 15 }, (_, index) => index + 1),
     ratios: ["16:9", "9:16", "1:1", "4:3", "3:4", "2:3", "3:2"],
-    maxImages: 1,
+    maxImages: Number.POSITIVE_INFINITY,
     maxVideos: 0,
     maxAudios: 0,
-    imageMaxBytes: 20 * 1024 * 1024,
+    imageMaxBytes: Number.POSITIVE_INFINITY,
     videoMaxBytes: 0,
     audioMaxBytes: 0,
     resolution: "selectable",
@@ -89,7 +89,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value.includes("video-v1")) return VIDEO_V1_PROFILE;
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
-    if (value.includes("grok-imagine-1.5-video")) return GROK_PROFILE;
+    if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     return GENERIC_PROFILE;
 }
 

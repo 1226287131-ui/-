@@ -255,7 +255,6 @@ async function createVideoV2FullTask(config: AiConfig, model: string, prompt: st
 
 async function createGrokTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (!prompt.trim()) throw new Error("Grok 需要填写视频提示词");
-    if (references.length > 1) throw new Error("Grok 最多支持 1 张 PNG 格式的参考图");
     if (videoReferences.length) throw new Error("Grok 不支持参考视频");
     if (audioReferences.length) throw new Error("Grok 不支持参考音频");
     const body = new FormData();
@@ -264,10 +263,10 @@ async function createGrokTask(config: AiConfig, model: string, prompt: string, r
     body.append("seconds", normalizeVideoSecondsForModel(model, config.videoSeconds));
     body.append("aspect_ratio", normalizeVideoRatioForModel(model, config.size));
     body.append("resolution", normalizeVideoQualityForModel(model, config.vquality));
-    const reference = references[0];
-    if (reference) {
+    for (const reference of references) {
         const file = dataUrlToFile({ ...reference, dataUrl: await imageToDataUrl(reference) });
-        if (file.type.toLowerCase() !== "image/png") throw new Error("Grok 仅支持上传 1 张 PNG 格式的参考图");
+        if (!file.size) throw new Error("Grok 参考图不能为空");
+        if (!file.type.toLowerCase().startsWith("image/")) throw new Error("Grok 仅支持图片格式的参考图");
         body.append("input_reference", file);
     }
     try {
@@ -328,7 +327,20 @@ async function pollVideoV2FullTask(config: AiConfig, task: VideoGenerationTask, 
 }
 
 async function pollGrokTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
-    return pollOpenCompatibleTask(config, task, options, "Grok");
+    try {
+        const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
+        const state = unwrapVideoResponse(payload);
+        const status = videoStatus(payload);
+        if (isFailureStatus(status)) return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "Grok 视频生成失败" };
+        if (!isSuccessStatus(status)) return { status: "pending" };
+        const url = videoResultUrl(payload, config.baseUrl);
+        if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
+        return { status: "completed", result: await downloadVideoContent(config, `/videos/${encodeURIComponent(task.id)}/content`, options) };
+    } catch (error) {
+        throwIfRequestAborted(error, options?.signal);
+        if (isRetryableVideoPollError(error)) return { status: "pending" };
+        throw new Error(readAxiosError(error, "Grok 任务查询失败"));
+    }
 }
 
 async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTask, options: RequestOptions | undefined, label: string): Promise<VideoGenerationTaskState> {

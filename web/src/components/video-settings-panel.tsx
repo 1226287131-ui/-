@@ -146,7 +146,7 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                         })}
                     </div>
                     <div className="text-[11px] leading-4 opacity-55">
-                        {isGrok ? "Grok 支持 7 种画幅；图生视频仅支持 1 张 PNG 参考图。" : isVideoV2Full ? "video-v2-满血兜底版固定 720p、15 秒" : profile.kind === "video-v2" ? "v2 与 v2-fast 使用 aspect_ratio" : "video-v1 使用 aspect_ratio"}
+                        {isGrok ? "Grok 支持 7 种画幅和多参考图上传；数量、格式及总请求大小以实际上游能力为准。" : isVideoV2Full ? "video-v2-满血兜底版固定 720p、15 秒" : profile.kind === "video-v2" ? "v2 与 v2-fast 使用 aspect_ratio" : "video-v1 使用 aspect_ratio"}
                     </div>
                 </SettingGroup>
                 {profile.kind === "video-v1" || isVideoV2Full ? (
