@@ -202,20 +202,22 @@ function getVideoConfig() {
     const profile = getVideoModelProfile(modelName);
     const remoteProfile = profile.kind !== "generic";
     const ratioLabels: Record<string, string> = { "21:9": "超宽", "16:9": "横屏", "9:16": "竖屏", "1:1": "方形", "4:3": "标准", "3:4": "长幅", "2:3": "2:3", "3:2": "3:2" };
-    const sizeOptions = remoteProfile ? profile.ratios.map((value) => ({ value, label: ratioLabels[value] || value })) : videoSizeOptions;
+    const sizeOptions = remoteProfile ? (profile.kind === "minimax-h3" ? (profile.sizes || []).map((value) => ({ value, label: value })) : profile.ratios.map((value) => ({ value, label: ratioLabels[value] || value }))) : videoSizeOptions;
     const resolutionOptions =
         profile.kind === "video-v1" || profile.kind === "video-v2-full"
             ? [{ value: "720p", label: "720p" }]
             : profile.kind === "video-v2" || profile.kind === "grok"
               ? profile.qualityOptions.map((value) => ({ value, label: value }))
-              : videoResolutionOptions;
+              : profile.kind === "minimax-h3"
+                ? []
+                : videoResolutionOptions;
     return {
         current: {
             model,
             modelName,
             size: remoteProfile ? normalizeVideoSizeForModel(modelName, config.size) : config.size || "1280x720",
             seconds: remoteProfile ? normalizeVideoSecondsForModel(modelName, config.videoSeconds) : config.videoSeconds || "6",
-            resolution: remoteProfile ? normalizeVideoQualityForModel(modelName, config.vquality) : config.vquality || "720",
+            resolution: profile.kind === "minimax-h3" ? "" : remoteProfile ? normalizeVideoQualityForModel(modelName, config.vquality) : config.vquality || "720",
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
         },

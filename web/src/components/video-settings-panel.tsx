@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import {
     boolConfig,
     isSeedanceFastModel,
@@ -57,6 +57,9 @@ export function VideoSettingsPanel({ config, model: selectedModel, onConfigChang
 
     const model = modelOptionName(videoModel);
     const profile = getVideoModelProfile(model);
+    if (profile.kind === "minimax-h3") {
+        return <MiniMaxH3VideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+    }
     if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "video-v2-full" || profile.kind === "grok") {
         return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} referenceImageCount={referenceImageCount} />;
     }
@@ -122,6 +125,57 @@ export function VideoSettingsPanel({ config, model: selectedModel, onConfigChang
     );
 }
 
+function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps & { model: string }) {
+    const profile = getVideoModelProfile(model);
+    const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const size = normalizeVideoSizeForModel(model, config.size);
+    const generateAudio = boolConfig(config.videoGenerateAudio, true);
+    const sizes = profile.sizes || [];
+
+    return (
+        <ImageSettingsTheme theme={theme}>
+            <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
+                {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
+                <SettingGroup title="视频尺寸" color={theme.node.muted}>
+                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                        {sizes.map((item) => {
+                            const [width, height] = item.split("x").map(Number);
+                            return (
+                                <button
+                                    key={item}
+                                    type="button"
+                                    className="flex min-h-[74px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-xs transition hover:opacity-80"
+                                    style={{ borderColor: size === item ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onClick={() => onConfigChange("size", item)}
+                                >
+                                    <SizePreview width={width} height={height} color={theme.node.text} />
+                                    <span>{item}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="text-[11px] leading-4 opacity-55">MiniMax-H3-933-1440P-GF 使用固定像素尺寸。</div>
+                </SettingGroup>
+                <SettingGroup title="秒数" color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {[5, 10, 15].map((value) => (
+                            <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                {value}s
+                            </OptionPill>
+                        ))}
+                    </div>
+                    <NumberInput value={seconds} min={5} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                    <div className="text-[11px] leading-4 opacity-55">支持 5-15 秒的整数。</div>
+                </SettingGroup>
+                <SettingGroup title="音频" color={theme.node.muted}>
+                    <SwitchRow label="生成音频" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                </SettingGroup>
+            </div>
+        </ImageSettingsTheme>
+    );
+}
+
 function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className, referenceImageCount = 0 }: VideoSettingsPanelProps & { model: string }) {
     const profile = getVideoModelProfile(model);
     const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
@@ -149,7 +203,13 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                         })}
                     </div>
                     <div className="text-[11px] leading-4 opacity-55">
-                        {isGrok ? "Grok 支持 7 种画幅和多参考图上传；数量、格式及总请求大小以实际上游能力为准。" : isVideoV2Full ? "video-v2-满血兜底版固定 720p、15 秒" : profile.kind === "video-v2" ? "v2 与 v2-fast 使用 aspect_ratio" : "video-v1 使用 aspect_ratio"}
+                        {isGrok
+                            ? "Grok 支持 7 种画幅和多参考图上传；数量、格式及总请求大小以实际上游能力为准。"
+                            : isVideoV2Full
+                              ? "video-v2-满血兜底版固定 720p、15 秒"
+                              : profile.kind === "video-v2"
+                                ? "v2 与 v2-fast 使用 aspect_ratio"
+                                : "video-v1 使用 aspect_ratio"}
                     </div>
                 </SettingGroup>
                 {profile.kind === "video-v1" || isVideoV2Full ? (

@@ -1,4 +1,4 @@
-export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-full" | "grok" | "generic";
+export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-full" | "grok" | "minimax-h3" | "generic";
 
 export type VideoModelProfile = {
     kind: VideoModelKind;
@@ -12,6 +12,9 @@ export type VideoModelProfile = {
     audioMaxBytes: number;
     resolution: "fixed" | "selectable" | "quality";
     qualityOptions: readonly string[];
+    /** Fixed pixel sizes used by models whose API does not accept aspect ratios. */
+    sizes?: readonly string[];
+    defaultSize?: string;
 };
 
 const VIDEO_V1_PROFILE: VideoModelProfile = {
@@ -70,6 +73,22 @@ const GROK_PROFILE: VideoModelProfile = {
     qualityOptions: ["480p", "720p", "1080p"],
 };
 
+const MINIMAX_H3_PROFILE: VideoModelProfile = {
+    kind: "minimax-h3",
+    seconds: Array.from({ length: 11 }, (_, index) => index + 5),
+    ratios: [],
+    sizes: ["3360x1440", "2560x1440", "1920x1440", "1440x1440", "1440x1920", "1440x2560"],
+    defaultSize: "2560x1440",
+    maxImages: 5,
+    maxVideos: 0,
+    maxAudios: 0,
+    imageMaxBytes: 20 * 1024 * 1024,
+    videoMaxBytes: 0,
+    audioMaxBytes: 0,
+    resolution: "fixed",
+    qualityOptions: [],
+};
+
 const GENERIC_PROFILE: VideoModelProfile = {
     kind: "generic",
     seconds: [6, 10, 12, 16, 20],
@@ -90,6 +109,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
+    if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;
     return GENERIC_PROFILE;
 }
 
@@ -121,6 +141,24 @@ export function normalizeVideoRatioForModel(model: string, value: string) {
 }
 
 export function normalizeVideoSizeForModel(model: string, value: string) {
+    const profile = getVideoModelProfile(model);
+    if (profile.sizes?.length) {
+        const requested = String(value || "").trim();
+        if (profile.sizes.includes(requested)) return requested;
+        const match = requested.match(/^(\d+)[x:](\d+)$/);
+        if (match) {
+            const requestedRatio = Number(match[1]) / Number(match[2]);
+            return profile.sizes.reduce(
+                (best, item) => {
+                    const [width, height] = item.split("x").map(Number);
+                    const ratio = width / height;
+                    return Math.abs(ratio - requestedRatio) < Math.abs(best.ratio - requestedRatio) ? { item, ratio } : best;
+                },
+                { item: profile.defaultSize || profile.sizes[0], ratio: 16 / 9 },
+            ).item;
+        }
+        return profile.defaultSize || profile.sizes[0];
+    }
     return normalizeVideoRatioForModel(model, value);
 }
 
@@ -162,5 +200,5 @@ export function videoModelSupports(model: string, kind: "image" | "video" | "aud
 
 export function videoModelUsesPublicMediaUrls(model: string) {
     const kind = getVideoModelProfile(model).kind;
-    return kind === "video-v1" || kind === "video-v2" || kind === "video-v2-full";
+    return kind === "video-v1" || kind === "video-v2" || kind === "video-v2-full" || kind === "minimax-h3";
 }

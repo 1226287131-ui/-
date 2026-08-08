@@ -2,7 +2,7 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/lib/image-utils";
-import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel } from "@/lib/video-model";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -47,7 +47,7 @@ class NonVideoResponseError extends Error {
 }
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; remoteOnly?: boolean };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-v1" | "video-v2" | "video-v2-full" | "grok" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-v1" | "video-v2" | "video-v2-full" | "grok" | "minimax-h3" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
@@ -66,7 +66,7 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "seedance" || task.provider === "video-v1" || task.provider === "video-v2" || task.provider === "video-v2-full" || task.provider === "grok" ? 5000 : 2500;
+    const delayMs = task.provider === "seedance" || task.provider === "video-v1" || task.provider === "video-v2" || task.provider === "video-v2-full" || task.provider === "grok" || task.provider === "minimax-h3" ? 5000 : 2500;
     for (;;) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -87,6 +87,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (profile.kind === "video-v2-full") return createVideoV2FullTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "video-v2") return createVideoV2Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    if (profile.kind === "minimax-h3") return createMiniMaxH3Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
@@ -108,13 +109,24 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     if (task.provider === "video-v2") return pollVideoV2Task(requestConfig, task, options);
     if (task.provider === "video-v2-full") return pollVideoV2FullTask(requestConfig, task, options);
     if (task.provider === "grok") return pollGrokTask(requestConfig, task, options);
+    if (task.provider === "minimax-h3") return pollMiniMaxH3Task(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
-    const requestConfig = { ...config, vquality: normalizeVideoQualityForReferences(model, config.vquality, references.length) };
+    const profile = getVideoModelProfile(modelOptionName(model));
+    const requestConfig = {
+        ...config,
+        vquality: normalizeVideoQualityForReferences(model, config.vquality, references.length),
+        ...(profile.kind === "minimax-h3"
+            ? {
+                  videoSeconds: normalizeVideoSecondsForModel(model, config.videoSeconds),
+                  size: normalizeVideoSizeForModel(model, config.size),
+              }
+            : {}),
+    };
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const result = videoPluginResult(
         await runModelPlugin({
@@ -254,6 +266,33 @@ async function createVideoV2FullTask(config: AiConfig, model: string, prompt: st
     }
 }
 
+async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelName = modelOptionName(model);
+    const profile = getVideoModelProfile(modelName);
+    if (!prompt.trim()) throw new Error("MiniMax-H3-933-1440P-GF 需要填写视频提示词");
+    if (references.length > profile.maxImages) throw new Error(`MiniMax-H3-933-1440P-GF 最多支持 ${profile.maxImages} 张参考图`);
+    if (videoReferences.length) throw new Error("MiniMax-H3-933-1440P-GF 不支持参考视频");
+    if (audioReferences.length) throw new Error("MiniMax-H3-933-1440P-GF 不支持参考音频");
+    const media = await resolveReferenceMediaUrls(references, [], []);
+    const payload = {
+        model: modelName,
+        prompt,
+        seconds: Number(normalizeVideoSecondsForModel(modelName, config.videoSeconds)),
+        size: normalizeVideoSizeForModel(modelName, config.size),
+        audio: boolConfig(config.videoGenerateAudio, true),
+        images: media.images.slice(0, profile.maxImages),
+    };
+    try {
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
+        const id = taskIdOf(created);
+        if (!id) throw new Error("MiniMax-H3-933-1440P-GF 接口没有返回任务 ID");
+        return { id, provider: "minimax-h3", model };
+    } catch (error) {
+        throwIfRequestAborted(error, options?.signal);
+        throw new Error(readAxiosError(error, "MiniMax-H3-933-1440P-GF 任务创建失败"));
+    }
+}
+
 async function createGrokTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (!prompt.trim()) throw new Error("Grok 需要填写视频提示词");
     if (videoReferences.length) throw new Error("Grok 不支持参考视频");
@@ -344,15 +383,20 @@ async function pollGrokTask(config: AiConfig, task: VideoGenerationTask, options
     }
 }
 
-async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTask, options: RequestOptions | undefined, label: string): Promise<VideoGenerationTaskState> {
+async function pollMiniMaxH3Task(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    return pollOpenCompatibleTask(config, task, options, "MiniMax-H3-933-1440P-GF", true);
+}
+
+async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTask, options: RequestOptions | undefined, label: string, requireCompletedStatus = false): Promise<VideoGenerationTaskState> {
     try {
         const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
         const state = unwrapVideoResponse(payload);
         const status = videoStatus(payload);
         const url = videoResultUrl(payload, config.baseUrl);
         if (isFailureStatus(status)) return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || `${label} 视频生成失败` };
-        // 中转站可能在状态仍为 IN_PROGRESS 时就返回成片 URL；直链优先，避免 content 接口长时间挂起。
-        if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
+        // Most gateways expose a usable URL before updating status. MiniMax follows
+        // the documented contract more strictly, so wait for a terminal success state.
+        if (url && (!requireCompletedStatus || isSuccessStatus(status))) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
         if (isSuccessStatus(status)) return { status: "completed", result: await downloadVideoContent(config, `/videos/${encodeURIComponent(task.id)}/content`, options) };
         return { status: "pending" };
     } catch (error) {

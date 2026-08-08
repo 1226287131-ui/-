@@ -23,6 +23,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
     const model = modelOptionName(config.model || config.videoModel);
     const profile = getVideoModelProfile(model);
     const isVideoV2Full = profile.kind === "video-v2-full";
+    const isMiniMaxH3 = profile.kind === "minimax-h3";
     const seconds = isVideoV2Full ? "15" : profile.kind === "generic" ? config.videoSeconds : normalizeVideoSecondsForModel(model, config.videoSeconds);
     const size = profile.kind === "generic" ? config.size : normalizeVideoSizeForModel(model, config.size);
     const quality = isVideoV2Full ? "720p" : profile.kind === "generic" ? config.vquality : normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
@@ -59,7 +60,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
-                        {videoResolutionLabel(quality)} · {videoSizeLabel(size)} · {videoSecondsLabel(seconds)}
+                        {isMiniMaxH3 ? `${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)}` : `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)}`}
                     </span>
                 </Button>
             </span>

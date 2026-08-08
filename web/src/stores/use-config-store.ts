@@ -82,6 +82,7 @@ export const defaultConfig: AiConfig = {
                 { name: "video-v2", capability: "video" },
                 { name: "video-v2-fast", capability: "video" },
                 { name: "video-v2-满血兜底版", capability: "video" },
+                { name: "MiniMax-H3-933-1440P-GF", capability: "video" },
                 { name: "gpt-5.5", capability: "text" },
                 { name: "gpt-4o-mini-tts", capability: "audio" },
             ],
@@ -101,7 +102,17 @@ export const defaultConfig: AiConfig = {
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
-    models: ["default::gpt-image-2", "default::video-v1", "default::grok-imagine-1.5-video", "default::video-v2", "default::video-v2-fast", "default::video-v2-满血兜底版", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    models: [
+        "default::gpt-image-2",
+        "default::video-v1",
+        "default::grok-imagine-1.5-video",
+        "default::video-v2",
+        "default::video-v2-fast",
+        "default::video-v2-满血兜底版",
+        "default::MiniMax-H3-933-1440P-GF",
+        "default::gpt-5.5",
+        "default::gpt-4o-mini-tts",
+    ],
     quality: "auto",
     size: "1:1",
     background: "",
@@ -131,7 +142,7 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo"];
+const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo", "minimax"];
 const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound"];
 const IMAGE_KEYWORDS = ["seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
 

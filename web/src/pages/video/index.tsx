@@ -384,7 +384,7 @@ export default function VideoPage() {
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
-                await delay(log.task.provider === "seedance" || log.task.provider === "grok" ? 5000 : 2500);
+                await delay(log.task.provider === "seedance" || log.task.provider === "grok" || log.task.provider === "minimax-h3" ? 5000 : 2500);
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
