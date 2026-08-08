@@ -62,6 +62,7 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+const MINIMAX_H3_MODEL_NAME = "MiniMax-H3-933-1440P-GF";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -223,7 +224,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
                 if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
+                const channels = ensureBuiltInMiniMaxModel(normalizeChannels(config));
                 const models = modelOptionsFromChannels(channels);
                 return {
                     ...current,
@@ -368,6 +369,12 @@ function normalizeChannels(config: AiConfig) {
         );
     }
     return channels;
+}
+
+function ensureBuiltInMiniMaxModel(channels: ModelChannel[]) {
+    if (channels.some((channel) => channel.models.some((model) => model.name.toLowerCase() === MINIMAX_H3_MODEL_NAME.toLowerCase()))) return channels;
+    const targetIndex = Math.max(0, channels.findIndex((channel) => channel.id === "default"));
+    return channels.map((channel, index) => (index === targetIndex ? { ...channel, models: normalizeChannelModels([...channel.models, { name: MINIMAX_H3_MODEL_NAME, capability: "video" }]) } : channel));
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {

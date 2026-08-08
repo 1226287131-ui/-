@@ -384,19 +384,19 @@ async function pollGrokTask(config: AiConfig, task: VideoGenerationTask, options
 }
 
 async function pollMiniMaxH3Task(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
-    return pollOpenCompatibleTask(config, task, options, "MiniMax-H3-933-1440P-GF", true);
+    return pollOpenCompatibleTask(config, task, options, "MiniMax-H3-933-1440P-GF");
 }
 
-async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTask, options: RequestOptions | undefined, label: string, requireCompletedStatus = false): Promise<VideoGenerationTaskState> {
+async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTask, options: RequestOptions | undefined, label: string): Promise<VideoGenerationTaskState> {
     try {
         const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
         const state = unwrapVideoResponse(payload);
         const status = videoStatus(payload);
         const url = videoResultUrl(payload, config.baseUrl);
         if (isFailureStatus(status)) return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || `${label} 视频生成失败` };
-        // Most gateways expose a usable URL before updating status. MiniMax follows
-        // the documented contract more strictly, so wait for a terminal success state.
-        if (url && (!requireCompletedStatus || isSuccessStatus(status))) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
+        // Some gateways publish the result URL just before updating status; use it
+        // when present so a finished task is not hidden behind a slow content route.
+        if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
         if (isSuccessStatus(status)) return { status: "completed", result: await downloadVideoContent(config, `/videos/${encodeURIComponent(task.id)}/content`, options) };
         return { status: "pending" };
     } catch (error) {
@@ -621,7 +621,7 @@ function videoResultUrl(payload: unknown, baseUrl = "") {
             const candidate = resolveVideoUrl(record.url, baseUrl);
             if (candidate) return candidate;
         }
-        for (const key of ["metadata", "content", "result", "data", "output", "response", "video", "file", "media"]) {
+        for (const key of ["metadata", "task", "state", "content", "result", "data", "output", "response", "video", "file", "media"]) {
             const nested = record[key];
             if (Array.isArray(nested)) {
                 for (const item of nested) {
@@ -643,8 +643,10 @@ function videoStatus(payload: unknown) {
     const visit = (value: unknown, depth: number) => {
         if (!value || typeof value !== "object" || depth > 8) return;
         const record = value as Record<string, unknown>;
-        if (typeof record.status === "string") statuses.push(record.status.toLowerCase().trim());
-        for (const key of ["data", "result", "output", "response", "content", "video", "file", "media"]) {
+        for (const key of ["status", "state", "task_status"]) {
+            if (typeof record[key] === "string") statuses.push(String(record[key]).toLowerCase().trim());
+        }
+        for (const key of ["metadata", "task", "state", "data", "result", "output", "response", "content", "video", "file", "media"]) {
             const nested = record[key];
             if (Array.isArray(nested)) nested.forEach((item) => visit(item, depth + 1));
             else visit(nested, depth + 1);
