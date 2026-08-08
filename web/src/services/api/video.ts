@@ -52,6 +52,8 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
+const minimaxNotFoundAttempts = new Map<string, number>();
+const MINIMAX_NOT_FOUND_RETRIES = 3;
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
@@ -393,15 +395,23 @@ async function pollGrokTask(config: AiConfig, task: VideoGenerationTask, options
 async function pollMiniMaxH3Task(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/video/generations/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
+        minimaxNotFoundAttempts.delete(task.id);
         const state = unwrapVideoResponse(payload);
         const status = videoStatus(payload);
         const url = videoResultUrl(payload, config.baseUrl);
-        if (isFailureStatus(status)) return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "MiniMax-H3-933-1440P-GF 视频生成失败" };
+        if (isFailureStatus(status)) {
+            minimaxNotFoundAttempts.delete(task.id);
+            return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "MiniMax-H3-933-1440P-GF 视频生成失败" };
+        }
         // MiniMax has no /content fallback. Keep polling until the result URL is available.
-        if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options) };
+        if (url) {
+            minimaxNotFoundAttempts.delete(task.id);
+            return { status: "completed", result: await videoResultFromUrl(config, url, options) };
+        }
         return { status: "pending" };
     } catch (error) {
         throwIfRequestAborted(error, options?.signal);
+        if (shouldRetryMiniMaxNotFound(error, task.id)) return { status: "pending" };
         if (isRetryableVideoPollError(error)) return { status: "pending" };
         throw new Error(readAxiosError(error, "MiniMax-H3-933-1440P-GF 任务查询失败"));
     }
@@ -720,8 +730,29 @@ function sameOriginAsBaseUrl(url: string, baseUrl: string) {
     }
 }
 
-function taskIdOf(payload: VideoResponse) {
-    return payload.task_id || payload.id || "";
+function taskIdOf(payload: unknown) {
+    const visit = (value: unknown, depth: number): string => {
+        if (!value || depth > 8) return "";
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                const id = visit(item, depth + 1);
+                if (id) return id;
+            }
+            return "";
+        }
+        if (typeof value !== "object") return "";
+        const record = value as Record<string, unknown>;
+        for (const key of ["task_id", "id"]) {
+            const candidate = record[key];
+            if ((typeof candidate === "string" || typeof candidate === "number") && String(candidate).trim()) return String(candidate);
+        }
+        for (const key of ["data", "task", "result", "response", "output", "state"]) {
+            const id = visit(record[key], depth + 1);
+            if (id) return id;
+        }
+        return "";
+    };
+    return visit(payload, 0);
 }
 
 function readApiErrorMessage(value: unknown): string {
@@ -760,6 +791,17 @@ function isRetryableVideoPollError(error: unknown) {
     if (["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"].includes(error.code || "")) return true;
     const status = error.response?.status;
     return !status || status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function shouldRetryMiniMaxNotFound(error: unknown, taskId: string) {
+    if (!axios.isAxiosError(error) || error.response?.status !== 404) return false;
+    const attempts = (minimaxNotFoundAttempts.get(taskId) || 0) + 1;
+    if (attempts <= MINIMAX_NOT_FOUND_RETRIES) {
+        minimaxNotFoundAttempts.set(taskId, attempts);
+        return true;
+    }
+    minimaxNotFoundAttempts.delete(taskId);
+    return false;
 }
 
 async function assertVideoBlob(blob: Blob) {
