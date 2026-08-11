@@ -60,7 +60,7 @@ export function VideoSettingsPanel({ config, model: selectedModel, onConfigChang
     if (profile.kind === "minimax-h3") {
         return <MiniMaxH3VideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
-    if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "video-v2-full" || profile.kind === "grok") {
+    if (profile.kind === "video-v1" || profile.kind === "video-v2" || profile.kind === "video-v2-full" || profile.kind === "video-v3" || profile.kind === "grok") {
         return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} referenceImageCount={referenceImageCount} />;
     }
 
@@ -185,7 +185,8 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
     const quality = normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
     const qualityOptions = hasMultipleReferenceImages ? profile.qualityOptions.filter((item) => item !== "1080p") : profile.qualityOptions;
     const isVideoV2Full = profile.kind === "video-v2-full";
-    const ratioLabels: Record<string, string> = { "21:9": "超宽", "16:9": "横屏", "9:16": "竖屏", "1:1": "方形", "4:3": "标准", "3:4": "长幅", "2:3": "2:3", "3:2": "3:2" };
+    const isVideoV3 = profile.kind === "video-v3";
+    const ratioLabels: Record<string, string> = { auto: "自动", "21:9": "超宽", "16:9": "横屏", "9:16": "竖屏", "1:1": "方形", "4:3": "标准", "3:4": "长幅", "2:3": "2:3", "3:2": "3:2" };
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -203,23 +204,25 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                         })}
                     </div>
                     <div className="text-[11px] leading-4 opacity-55">
-                        {isGrok
-                            ? "Grok 支持 7 种画幅和多参考图上传；数量、格式及总请求大小以实际上游能力为准。"
-                            : isVideoV2Full
-                              ? "video-v2-满血兜底版固定 720p、15 秒"
-                              : profile.kind === "video-v2"
-                                ? "v2 与 v2-fast 使用 aspect_ratio"
-                                : "video-v1 使用 aspect_ratio"}
+                        {isVideoV3
+                            ? "video-v3 固定输出 720p，支持图片、视频和音频参考。"
+                            : isGrok
+                              ? "Grok 支持 7 种画幅和多参考图上传；数量、格式及总请求大小以实际上游能力为准。"
+                              : isVideoV2Full
+                                ? "video-v2-满血兜底版固定 720p、15 秒"
+                                : profile.kind === "video-v2"
+                                  ? "v2 与 v2-fast 使用 aspect_ratio"
+                                  : "video-v1 使用 aspect_ratio"}
                     </div>
                 </SettingGroup>
-                {profile.kind === "video-v1" || isVideoV2Full ? (
+                {profile.kind === "video-v1" || isVideoV2Full || isVideoV3 ? (
                     <SettingGroup title="分辨率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-2.5">
                             <OptionPill selected theme={theme} disabled onClick={() => undefined}>
                                 720p
                             </OptionPill>
                         </div>
-                        <div className="text-[11px] leading-4 opacity-55">{isVideoV2Full ? "video-v2-满血兜底版固定输出 720p" : "video-v1 固定输出 720p"}</div>
+                        <div className="text-[11px] leading-4 opacity-55">{isVideoV3 ? "video-v3 固定输出 720p" : isVideoV2Full ? "video-v2-满血兜底版固定输出 720p" : "video-v1 固定输出 720p"}</div>
                     </SettingGroup>
                 ) : null}
                 {profile.kind === "video-v2" || isGrok ? (
@@ -235,7 +238,19 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title="秒数" color={theme.node.muted}>
-                    {isGrok ? (
+                    {isVideoV3 ? (
+                        <>
+                            <div className="grid grid-cols-3 gap-2.5">
+                                {[4, 8, 12, 16, 20, 24, 30].map((value) => (
+                                    <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                        {value}s
+                                    </OptionPill>
+                                ))}
+                            </div>
+                            <NumberInput value={seconds} min={4} max={30} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                            <div className="text-[11px] leading-4 opacity-55">可输入 4-30 的任意整数秒数。</div>
+                        </>
+                    ) : isGrok ? (
                         <>
                             <div className="grid grid-cols-4 gap-2.5">
                                 {[5, 8, 10, 15].map((value) => (
@@ -257,6 +272,11 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                         </div>
                     )}
                 </SettingGroup>
+                {isVideoV3 ? (
+                    <SettingGroup title="音频" color={theme.node.muted}>
+                        <SwitchRow label="生成音频" checked={boolConfig(config.videoGenerateAudio, true)} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                    </SettingGroup>
+                ) : null}
             </div>
         </ImageSettingsTheme>
     );

@@ -1,4 +1,4 @@
-export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-full" | "grok" | "minimax-h3" | "generic";
+export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-full" | "video-v3" | "grok" | "minimax-h3" | "generic";
 
 export type VideoModelProfile = {
     kind: VideoModelKind;
@@ -15,6 +15,7 @@ export type VideoModelProfile = {
     /** Fixed pixel sizes used by models whose API does not accept aspect ratios. */
     sizes?: readonly string[];
     defaultSize?: string;
+    defaultRatio?: string;
 };
 
 const VIDEO_V1_PROFILE: VideoModelProfile = {
@@ -55,6 +56,21 @@ const VIDEO_V2_FULL_PROFILE: VideoModelProfile = {
     imageMaxBytes: 12 * 1024 * 1024,
     videoMaxBytes: 48 * 1024 * 1024,
     audioMaxBytes: 16 * 1024 * 1024,
+    resolution: "fixed",
+    qualityOptions: ["720p"],
+};
+
+const VIDEO_V3_PROFILE: VideoModelProfile = {
+    kind: "video-v3",
+    seconds: Array.from({ length: 27 }, (_, index) => index + 4),
+    ratios: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    defaultRatio: "16:9",
+    maxImages: 30,
+    maxVideos: 10,
+    maxAudios: 10,
+    imageMaxBytes: 20 * 1024 * 1024,
+    videoMaxBytes: Number.POSITIVE_INFINITY,
+    audioMaxBytes: Number.POSITIVE_INFINITY,
     resolution: "fixed",
     qualityOptions: ["720p"],
 };
@@ -104,10 +120,13 @@ const GENERIC_PROFILE: VideoModelProfile = {
 };
 
 export function getVideoModelProfile(model: string): VideoModelProfile {
-    const value = model.trim().toLowerCase();
+    const raw = model.trim().toLowerCase();
+    const separator = raw.lastIndexOf("::");
+    const value = separator >= 0 ? raw.slice(separator + 2) : raw;
     if (value.includes("video-v1")) return VIDEO_V1_PROFILE;
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
+    if (["video-v3", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;
     return GENERIC_PROFILE;
@@ -129,15 +148,21 @@ export function normalizeVideoRatioForModel(model: string, value: string) {
     const match = String(value || "").match(/^(\d+)x(\d+)$/);
     if (match) {
         const ratio = Number(match[1]) / Number(match[2]);
-        return profile.ratios.reduce(
-            (best, item) => {
+        const ratios = profile.ratios
+            .filter((item) => /^\d+:\d+$/.test(item))
+            .map((item) => {
                 const [width, height] = item.split(":").map(Number);
-                return Math.abs(width / height - ratio) < Math.abs(best.ratio - ratio) ? { item, ratio: width / height } : best;
+                return { item, ratio: width / height };
+            });
+        if (ratios.length)
+            return ratios.reduce(
+            (best, item) => {
+                return Math.abs(item.ratio - ratio) < Math.abs(best.ratio - ratio) ? item : best;
             },
-            { item: profile.ratios[0] || "16:9", ratio: 16 / 9 },
+            ratios.find((item) => item.item === profile.defaultRatio) || ratios[0],
         ).item;
     }
-    return profile.ratios[0] || "16:9";
+    return profile.defaultRatio || profile.ratios[0] || "16:9";
 }
 
 export function normalizeVideoSizeForModel(model: string, value: string) {
@@ -166,6 +191,7 @@ export function normalizeVideoQualityForModel(model: string, value: string) {
     const profile = getVideoModelProfile(model);
     if (profile.kind === "video-v1") return "720p";
     if (profile.kind === "video-v2-full") return "720p";
+    if (profile.kind === "video-v3") return "720p";
     if (profile.kind === "video-v2" || profile.kind === "grok") {
         const normalized = String(value || "")
             .trim()
@@ -200,5 +226,5 @@ export function videoModelSupports(model: string, kind: "image" | "video" | "aud
 
 export function videoModelUsesPublicMediaUrls(model: string) {
     const kind = getVideoModelProfile(model).kind;
-    return kind === "video-v1" || kind === "video-v2" || kind === "video-v2-full" || kind === "minimax-h3";
+    return kind === "video-v1" || kind === "video-v2" || kind === "video-v2-full" || kind === "video-v3" || kind === "minimax-h3";
 }

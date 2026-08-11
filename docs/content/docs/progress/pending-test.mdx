@@ -5,6 +5,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- `video-v3`：模型设置应只显示固定 `720p`，支持 `auto`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16` 画幅及 `4-30` 秒整数；创建请求应使用用户渠道的 `POST /v1/videos`，带 `model`、`prompt`、`duration`、`ratio`、`resolution: "720p"`、`images`、`videos`、`audios`、`generate_audio`，完成后轮询 `GET /v1/videos/{task_id}` 并优先展示 `result_url`、其次 `metadata.url`。结果链接尚未可访问时，画布应继续等待而非直接失败。
+- 无限画布视频批量：视频参数浮层可选 `1-15` 条；提交多条时应创建一个可展开的视频根节点和多条子节点，每条均单独创建/轮询任务、复用同一参考图/视频/音频，取消生成会中断整批任务，部分失败只标记失败子节点且保留已成功视频；重试失败子节点不应影响同批其它任务，删除相关节点或清空画布应中止后台请求。
 - `video-v2-满血兜底版`：模型设置应只显示 `16:9`/`9:16`、固定 `15s` 和固定 `720p`；提交请求应只包含 `model`、`prompt`、`images`、`videos`、`audios`、`aspect_ratio`、`duration`，不应包含 `resolution` 或 `generate_audio`。
 - 视频创作台模型参数：切换 `video-v1`、`grok-imagine-1.5-video`、`video-v2`、`video-v2-fast` 后，Grok 应允许 `1-15` 秒整数、`16:9/9:16/1:1/4:3/3:4/2:3/3:2` 画幅及 `480p/720p/1080p`；Grok 图生视频应支持多张参考图上传，超过 1 张时仅显示并提交 `480p` 或 `720p`。
 - 无限画布视频节点：节点模型下拉切换后，右侧参数浮层和底部摘要必须跟随当前节点模型，不应继续显示 Grok 的 `quality=high` 或 `12s`；生成任务的 `seconds/size/vquality` 也应按节点模型重新归一化。

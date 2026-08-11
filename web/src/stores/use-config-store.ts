@@ -63,6 +63,7 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const MINIMAX_H3_MODEL_NAME = "MiniMax-H3-933-1440P-GF";
+const VIDEO_V3_MODEL_NAME = "video-v3";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -83,6 +84,7 @@ export const defaultConfig: AiConfig = {
                 { name: "video-v2", capability: "video" },
                 { name: "video-v2-fast", capability: "video" },
                 { name: "video-v2-满血兜底版", capability: "video" },
+                { name: "video-v3", capability: "video" },
                 { name: "MiniMax-H3-933-1440P-GF", capability: "video" },
                 { name: "gpt-5.5", capability: "text" },
                 { name: "gpt-4o-mini-tts", capability: "audio" },
@@ -110,6 +112,7 @@ export const defaultConfig: AiConfig = {
         "default::video-v2",
         "default::video-v2-fast",
         "default::video-v2-满血兜底版",
+        "default::video-v3",
         "default::MiniMax-H3-933-1440P-GF",
         "default::gpt-5.5",
         "default::gpt-4o-mini-tts",
@@ -224,7 +227,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
                 if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = ensureBuiltInMiniMaxModel(normalizeChannels(config));
+                const channels = ensureBuiltInVideoV3Model(ensureBuiltInMiniMaxModel(normalizeChannels(config)));
                 const models = modelOptionsFromChannels(channels);
                 return {
                     ...current,
@@ -375,6 +378,12 @@ function ensureBuiltInMiniMaxModel(channels: ModelChannel[]) {
     if (channels.some((channel) => channel.models.some((model) => model.name.toLowerCase() === MINIMAX_H3_MODEL_NAME.toLowerCase()))) return channels;
     const targetIndex = Math.max(0, channels.findIndex((channel) => channel.id === "default"));
     return channels.map((channel, index) => (index === targetIndex ? { ...channel, models: normalizeChannelModels([...channel.models, { name: MINIMAX_H3_MODEL_NAME, capability: "video" }]) } : channel));
+}
+
+function ensureBuiltInVideoV3Model(channels: ModelChannel[]) {
+    if (channels.some((channel) => channel.models.some((model) => model.name.toLowerCase() === VIDEO_V3_MODEL_NAME))) return channels;
+    const targetIndex = Math.max(0, channels.findIndex((channel) => channel.id === "default"));
+    return channels.map((channel, index) => (index === targetIndex ? { ...channel, models: normalizeChannelModels([...channel.models, { name: VIDEO_V3_MODEL_NAME, capability: "video" }]) } : channel));
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {

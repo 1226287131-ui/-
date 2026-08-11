@@ -126,13 +126,13 @@ export const CanvasNode = React.memo(function CanvasNode({
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
-    const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
+    const isBatchRoot = (data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video) && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
     // 支持「交互/移动」开关的节点:移动态(默认)内容不吃指针,拖动整块;交互态内容可操作。
     // forceInteractive(如编辑态)强制可交互;空态(无内容)始终可交互,避免上传/生成按钮点不动。
     const supportsInteractionToggle = Boolean(definition?.interactionToggle);
     const forceInteractive = supportsInteractionToggle ? Boolean(definition?.forceInteractive?.(data)) : false;
     const contentInteractive = !supportsInteractionToggle || forceInteractive || !data.metadata?.content ? true : Boolean(data.metadata?.interactive);
-    const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
+    const isBatchChild = (data.type === CanvasNodeType.Image || data.type === CanvasNodeType.Video) && Boolean(data.metadata?.batchRootId);
     // 透明背景节点(如 SVG):卡片背景/边框透明,直接融入画布;选中/关联态仍显示描边以便定位
     const transparentBg = Boolean(definition?.transparentBackground);
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
@@ -433,7 +433,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 
 function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
-    if (props.isBatchRoot) return <ImageNodeContent {...props} />;
+    if (props.isBatchRoot) return props.node.type === CanvasNodeType.Video ? <VideoNodeContent {...props} /> : <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
@@ -617,15 +617,25 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
-function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
-    if (!node.metadata?.content)
-        return (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
-                <Video className="size-7 opacity-35" />
-                <span className="text-sm">空视频节点</span>
-            </div>
-        );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+function VideoNodeContent({ node, theme, isBatchRoot, batchCount, batchExpanded, batchOpening, batchRecovering, onToggleBatch, onRetry }: NodeContentRendererProps) {
+    const content = node.metadata?.content ? (
+        <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />
+    ) : node.metadata?.status === "loading" ? (
+        <LoadingContent theme={theme} />
+    ) : node.metadata?.status === "error" ? (
+        <ErrorContent node={node} theme={theme} onRetry={onRetry} />
+    ) : (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
+            <Video className="size-7 opacity-35" />
+            <span className="text-sm">空视频节点</span>
+        </div>
+    );
+    if (!isBatchRoot) return content;
+    return (
+        <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
+            {content}
+        </BatchFrame>
+    );
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {

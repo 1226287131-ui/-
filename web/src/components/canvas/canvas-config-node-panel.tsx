@@ -170,6 +170,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
 }
 
 function videoConfigPatch(key: keyof AiConfig, value: string) {
+    if (key === "count") return { count: Math.max(1, Math.min(15, Math.floor(Math.abs(Number(value)) || 1))) };
     if (key === "videoSeconds") return { seconds: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };

@@ -7,12 +7,13 @@ import { saveAs } from "file-saver";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { resolveReferenceMediaUrls } from "@/services/api/video-media";
+import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
-import { normalizeVideoQualityForReferences } from "@/lib/video-model";
+import { normalizeVideoQualityForReferences, videoModelUsesPublicMediaUrls } from "@/lib/video-model";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -287,18 +288,39 @@ function InfiniteCanvasPage() {
         if (request?.controller === controller) generationRequestsRef.current.delete(targetNodeId);
     }, []);
 
-    const stopGenerationByRunningId = useCallback((runningId: string) => {
+    const abortGenerationRequests = useCallback((matches: (request: CanvasGenerationRequest) => boolean) => {
+        const requests = Array.from(generationRequestsRef.current.values());
+        const controllers = new Set(requests.filter(matches).map((request) => request.controller));
+        if (!controllers.size) return;
         const affectedNodeIds = new Set<string>();
-        generationRequestsRef.current.forEach((request) => {
-            if (request.runningNodeId !== runningId) return;
+        requests.forEach((request) => {
+            if (!controllers.has(request.controller)) return;
             request.controller.abort();
-            generationRequestsRef.current.delete(request.targetNodeId);
+            if (generationRequestsRef.current.get(request.targetNodeId)?.controller === request.controller) generationRequestsRef.current.delete(request.targetNodeId);
             affectedNodeIds.add(request.targetNodeId);
             affectedNodeIds.add(request.originNodeId);
         });
-        setRunningNodeId((current) => (current === runningId ? null : current));
-        if (!affectedNodeIds.size) return;
-        setNodes((prev) => prev.map((node) => (affectedNodeIds.has(node.id) && node.metadata?.status === NODE_STATUS_LOADING ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } } : node)));
+        const activeNodeIds = new Set<string>();
+        generationRequestsRef.current.forEach((request) => {
+            activeNodeIds.add(request.targetNodeId);
+            activeNodeIds.add(request.originNodeId);
+            activeNodeIds.add(request.runningNodeId);
+        });
+        const inactiveNodeIds = new Set(Array.from(affectedNodeIds).filter((nodeId) => !activeNodeIds.has(nodeId)));
+        setRunningNodeId((current) => (current && inactiveNodeIds.has(current) ? null : current));
+        setNodes((prev) => prev.map((node) => (inactiveNodeIds.has(node.id) && node.metadata?.status === NODE_STATUS_LOADING ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } } : node)));
+    }, []);
+
+    const stopGenerationByRunningId = useCallback((runningId: string) => {
+        abortGenerationRequests((request) => request.runningNodeId === runningId);
+    }, [abortGenerationRequests]);
+
+    const clearRunningNodeIfOwned = useCallback((nodeId: string, controller: AbortController) => {
+        const request = generationRequestsRef.current.get(nodeId);
+        if (request && request.controller !== controller) return;
+        if (Array.from(generationRequestsRef.current.values()).some((item) => item.runningNodeId === nodeId && item.controller !== controller)) return;
+        if (!request && controller.signal.aborted) return;
+        setRunningNodeId((current) => (current === nodeId ? null : current));
     }, []);
 
     const confirmStopGeneration = useCallback(
@@ -720,6 +742,7 @@ function InfiniteCanvasPage() {
             nodesRef.current.forEach((node) => {
                 if (ids.has(node.id)) node.metadata?.batchChildIds?.forEach((childId) => allIds.add(childId));
             });
+            abortGenerationRequests((request) => allIds.has(request.targetNodeId) || allIds.has(request.originNodeId) || allIds.has(request.runningNodeId));
             setNodes((prev) => {
                 const next = prev.filter((node) => !allIds.has(node.id));
                 return next.map((node) => {
@@ -758,7 +781,7 @@ function InfiniteCanvasPage() {
             setContextMenu((current) => (current?.type === "node" && allIds.has(current.nodeId) ? null : current));
             cleanupCanvasFiles({ projectId, nodes: nodesRef.current.filter((node) => !allIds.has(node.id)), chatSessions });
         },
-        [chatSessions, cleanupCanvasFiles, projectId],
+        [abortGenerationRequests, chatSessions, cleanupCanvasFiles, projectId],
     );
 
     const deleteConnection = useCallback((connectionId: string) => {
@@ -780,6 +803,7 @@ function InfiniteCanvasPage() {
     }, [cancelPendingConnectionCreate]);
 
     const clearCanvas = useCallback(() => {
+        abortGenerationRequests(() => true);
         setNodes([]);
         setConnections([]);
         setInfoNodeId(null);
@@ -791,7 +815,7 @@ function InfiniteCanvasPage() {
         deselectCanvas();
         setClearConfirmOpen(false);
         cleanupCanvasFiles({ projectId, nodes: [], chatSessions: [] });
-    }, [cleanupCanvasFiles, deselectCanvas, projectId]);
+    }, [abortGenerationRequests, cleanupCanvasFiles, deselectCanvas, projectId]);
 
     const duplicateNode = useCallback((nodeId: string) => {
         const source = nodesRef.current.find((node) => node.id === nodeId);
@@ -2039,14 +2063,14 @@ function InfiniteCanvasPage() {
             const effectivePrompt = generationContext.prompt.trim();
             if (runController.signal.aborted) {
                 finishGenerationRequest(nodeId, runController);
-                setRunningNodeId(null);
+                clearRunningNodeIfOwned(nodeId, runController);
                 return;
             }
             const markSourceStatus = sourceNode?.type !== CanvasNodeType.Image && !editingTextNode;
             const statusPrompt = sourceNode?.type === CanvasNodeType.Config ? effectivePrompt : prompt;
             if (!effectivePrompt && (mode === "text" || mode === "audio")) {
                 finishGenerationRequest(nodeId, runController);
-                setRunningNodeId(null);
+                clearRunningNodeIfOwned(nodeId, runController);
                 return;
             }
             let pendingChildIds: string[] = [];
@@ -2221,68 +2245,145 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+                    const count = getGenerationCount(generationConfig.count);
                     const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content;
-                    const videoId = isEmptyVideoNode ? nodeId : nanoid();
+                    const rootId = isEmptyVideoNode ? nodeId : nanoid();
                     const parent = sourceNode?.position || { x: 0, y: 0 };
-                    const videoNode: CanvasNodeData = {
-                        id: videoId,
+                    const childIds = count > 1 ? Array.from({ length: count }, () => nanoid()) : [];
+                    const targetIds = count > 1 ? childIds : [rootId];
+                    const videoGenerationMetadata = {
+                        prompt: effectivePrompt,
+                        status: NODE_STATUS_LOADING,
+                        model: generationConfig.model,
+                        size: generationConfig.size,
+                        seconds: generationConfig.videoSeconds,
+                        vquality: generationConfig.vquality,
+                        generateAudio: generationConfig.videoGenerateAudio,
+                        watermark: generationConfig.videoWatermark,
+                        count,
+                        references: generationReferenceUrls(generationContext),
+                    };
+                    const rootNode: CanvasNodeData = {
+                        id: rootId,
                         type: CanvasNodeType.Video,
                         title: effectivePrompt.slice(0, 32) || "Generated Video",
                         position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
                         metadata: {
-                            prompt: effectivePrompt,
-                            status: NODE_STATUS_LOADING,
-                            model: generationConfig.model,
-                            size: generationConfig.size,
-                            seconds: generationConfig.videoSeconds,
-                            vquality: generationConfig.vquality,
-                            generateAudio: generationConfig.videoGenerateAudio,
-                            watermark: generationConfig.videoWatermark,
-                            references: generationReferenceUrls(generationContext),
+                            ...videoGenerationMetadata,
+                            isBatchRoot: count > 1,
+                            batchChildIds: count > 1 ? childIds : undefined,
+                            imageBatchExpanded: count > 1 ? true : undefined,
                         },
                     };
-                    pendingChildIds = [videoId];
+                    const childNodes: CanvasNodeData[] = childIds.map((id, index) => ({
+                        id,
+                        type: CanvasNodeType.Video,
+                        title: effectivePrompt.slice(0, 32) || "Generated Video",
+                        position: {
+                            x: rootNode.position.x + rootNode.width + 120 + (index % 2) * (spec.width + 36),
+                            y: rootNode.position.y + Math.floor(index / 2) * (spec.height + 36),
+                        },
+                        width: spec.width,
+                        height: spec.height,
+                        metadata: { ...videoGenerationMetadata, batchRootId: rootId },
+                    }));
+                    pendingChildIds = isEmptyVideoNode ? childIds : [rootId, ...childIds];
                     setNodes((prev) =>
                         isEmptyVideoNode
-                            ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node))
-                            : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode],
+                            ? prev.map((node) => (node.id === nodeId ? { ...node, ...rootNode } : node)).concat(childNodes)
+                            : [
+                                  ...prev.map((node) => (node.id === nodeId ? (sourceNode?.type === CanvasNodeType.Config ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } }) : node)),
+                                  rootNode,
+                                  ...childNodes,
+                              ],
                     );
-                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
-                    const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
-                    try {
-                        const video = await storeGeneratedVideo(
-                            await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }),
-                        );
-                        const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                        setNodes((prev) =>
-                            prev.map((node) =>
-                                node.id === videoId
-                                    ? {
-                                          ...node,
-                                          width: videoSize.width,
-                                          height: videoSize.height,
-                                          position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 },
-                                          metadata: {
-                                              ...node.metadata,
-                                              ...videoMetadata(video),
-                                              prompt: effectivePrompt,
-                                              model: generationConfig.model,
-                                              size: generationConfig.size,
-                                              seconds: generationConfig.videoSeconds,
-                                              vquality: generationConfig.vquality,
-                                              generateAudio: generationConfig.videoGenerateAudio,
-                                              watermark: generationConfig.videoWatermark,
-                                              references: generationReferenceUrls(generationContext),
-                                          },
-                                      }
-                                    : node,
-                            ),
-                        );
-                    } finally {
-                        finishGenerationRequest(videoId, controller);
+                    setConnections((prev) => [...prev, ...(isEmptyVideoNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId }))]);
+                    const controller = runController;
+                    const targetControllers = new Map(
+                        targetIds.map((targetId) => [targetId, targetId === nodeId ? controller : startGenerationRequest(targetId, nodeId, nodeId)]),
+                    );
+                    if (count > 1 && rootId !== nodeId) startGenerationRequest(rootId, nodeId, nodeId, controller);
+                    let referenceImages = generationContext.referenceImages;
+                    let referenceVideos = generationContext.referenceVideos;
+                    let referenceAudios = generationContext.referenceAudios;
+                    if (count > 1 && videoModelUsesPublicMediaUrls(modelOptionName(generationConfig.model))) {
+                        const media = await resolveReferenceMediaUrls(referenceImages, referenceVideos, referenceAudios);
+                        referenceImages = referenceImages.map((reference, index) => ({ ...reference, url: media.images[index] }));
+                        referenceVideos = referenceVideos.map((reference, index) => ({ ...reference, url: media.videos[index] }));
+                        referenceAudios = referenceAudios.map((reference, index) => ({ ...reference, url: media.audios[index] }));
                     }
+                    if (controller.signal.aborted) return;
+                    let hasSuccess = false;
+                    let hasFailure = false;
+                    await Promise.all(
+                        targetIds.map(async (targetId) => {
+                            const targetController = targetControllers.get(targetId)!;
+                            try {
+                                const video = await storeGeneratedVideo(
+                                    await requestVideoGeneration({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, referenceVideos, referenceAudios, { signal: targetController.signal }),
+                                );
+                                if (generationRequestsRef.current.get(targetId)?.controller !== targetController) return;
+                                const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                                setNodes((prev) => {
+                                    const root = prev.find((node) => node.id === rootId);
+                                    return prev.map((node) => {
+                                        if (node.id !== targetId && node.id !== rootId) return node;
+                                        const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                                        if (node.id === rootId && (targetId === rootId || !root?.metadata?.primaryImageId))
+                                            return {
+                                                ...node,
+                                                width: videoSize.width,
+                                                height: videoSize.height,
+                                                position: { x: center.x - videoSize.width / 2, y: center.y - videoSize.height / 2 },
+                                                metadata: { ...node.metadata, ...videoGenerationMetadata, ...videoMetadata(video), primaryImageId: targetId },
+                                            };
+                                        if (node.id === targetId)
+                                            return {
+                                                ...node,
+                                                width: videoSize.width,
+                                                height: videoSize.height,
+                                                position: { x: center.x - videoSize.width / 2, y: center.y - videoSize.height / 2 },
+                                                metadata: { ...node.metadata, ...videoGenerationMetadata, ...videoMetadata(video) },
+                                            };
+                                        return node;
+                                    });
+                                });
+                                hasSuccess = true;
+                            } catch (error) {
+                                if (isGenerationCanceled(error)) return;
+                                if (generationRequestsRef.current.get(targetId)?.controller !== targetController) return;
+                                const errorDetails = error instanceof Error ? error.message : "视频生成失败";
+                                hasFailure = true;
+                                setNodes((prev) => prev.map((node) => (node.id === targetId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
+                            } finally {
+                                finishGenerationRequest(targetId, targetController);
+                            }
+                        }),
+                    );
+                    const hasReplacementRequest = Array.from(generationRequestsRef.current.values()).some((request) => request.runningNodeId === nodeId && request.controller !== controller);
+                    if (count > 1) finishGenerationRequest(rootId, controller);
+                    if (hasReplacementRequest) return;
+                    if (controller.signal.aborted) {
+                        if (generationRequestsRef.current.get(nodeId)?.controller === controller)
+                            setNodes((prev) =>
+                                prev.map((node) =>
+                                    node.id === nodeId && sourceNode?.type === CanvasNodeType.Config && node.metadata?.status === NODE_STATUS_LOADING ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } } : node,
+                                ),
+                            );
+                        return;
+                    }
+                    if (hasFailure) message.error(hasSuccess ? "部分视频生成失败" : "全部视频生成失败");
+                    setNodes((prev) =>
+                        prev.map((node) =>
+                            node.id === nodeId && sourceNode?.type === CanvasNodeType.Config
+                                ? { ...node, metadata: { ...node.metadata, status: hasSuccess ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR, errorDetails: hasSuccess ? undefined : "全部视频生成失败" } }
+                                : node.id === rootId && !hasSuccess
+                                  ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: "全部视频生成失败" } }
+                                  : node,
+                        ),
+                    );
                     return;
                 }
 
@@ -2378,6 +2479,7 @@ function InfiniteCanvasPage() {
                 );
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
+                if (generationRequestsRef.current.get(nodeId)?.controller !== runController) return;
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 message.error(errorDetails);
                 setNodes((prev) =>
@@ -2385,10 +2487,10 @@ function InfiniteCanvasPage() {
                 );
             } finally {
                 finishGenerationRequest(nodeId, runController);
-                setRunningNodeId(null);
+                clearRunningNodeIfOwned(nodeId, runController);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [clearRunningNodeIfOwned, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
@@ -2433,9 +2535,11 @@ function InfiniteCanvasPage() {
             }
             const retryImages = retryReferenceImages || [];
 
-            setRunningNodeId(node.id);
+            const activeBatchRequest = node.metadata?.batchRootId ? generationRequestsRef.current.get(node.metadata.batchRootId) : undefined;
+            const runningId = activeBatchRequest?.runningNodeId || node.id;
+            setRunningNodeId(runningId);
             setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
-            const controller = startGenerationRequest(node.id, sourceNode.id, node.id);
+            const controller = startGenerationRequest(node.id, sourceNode.id, runningId);
             const videoGenerationConfig = node.type === CanvasNodeType.Video ? { ...generationConfig, vquality: normalizeVideoQualityForReferences(generationConfig.model, generationConfig.vquality, retryImages.length) } : generationConfig;
 
             try {
@@ -2456,30 +2560,45 @@ function InfiniteCanvasPage() {
                 }
                 if (node.type === CanvasNodeType.Video) {
                     const video = await storeGeneratedVideo(await requestVideoGeneration(videoGenerationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    if (generationRequestsRef.current.get(node.id)?.controller !== controller) return;
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                    setNodes((prev) =>
-                        prev.map((item) =>
-                            item.id === node.id
-                                ? {
-                                      ...item,
-                                      width: videoSize.width,
-                                      height: videoSize.height,
-                                      position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 },
-                                      metadata: {
-                                          ...item.metadata,
-                                          ...videoMetadata(video),
-                                          prompt,
-                                          model: videoGenerationConfig.model,
-                                          size: videoGenerationConfig.size,
-                                          seconds: videoGenerationConfig.videoSeconds,
-                                          vquality: videoGenerationConfig.vquality,
-                                          generateAudio: videoGenerationConfig.videoGenerateAudio,
-                                          watermark: videoGenerationConfig.videoWatermark,
-                                      },
-                                  }
-                                : item,
-                        ),
-                    );
+                    const resultMetadata = {
+                        ...videoMetadata(video),
+                        prompt,
+                        model: videoGenerationConfig.model,
+                        size: videoGenerationConfig.size,
+                        seconds: videoGenerationConfig.videoSeconds,
+                        vquality: videoGenerationConfig.vquality,
+                        generateAudio: videoGenerationConfig.videoGenerateAudio,
+                        watermark: videoGenerationConfig.videoWatermark,
+                        errorDetails: undefined,
+                    };
+                    const batchRootId = node.metadata?.batchRootId;
+                    setNodes((prev) => {
+                        const batchRoot = batchRootId ? prev.find((item) => item.id === batchRootId) : null;
+                        return prev.map((item) => {
+                            const center = { x: item.position.x + item.width / 2, y: item.position.y + item.height / 2 };
+                            if (item.id === node.id)
+                                return {
+                                    ...item,
+                                    width: videoSize.width,
+                                    height: videoSize.height,
+                                    position: { x: center.x - videoSize.width / 2, y: center.y - videoSize.height / 2 },
+                                    metadata: { ...item.metadata, ...resultMetadata },
+                                };
+                            if (item.id === batchRootId && (!batchRoot?.metadata?.primaryImageId || batchRoot.metadata.primaryImageId === node.id))
+                                return {
+                                    ...item,
+                                    width: videoSize.width,
+                                    height: videoSize.height,
+                                    position: { x: center.x - videoSize.width / 2, y: center.y - videoSize.height / 2 },
+                                    metadata: { ...item.metadata, ...resultMetadata, primaryImageId: node.id },
+                                };
+                            if (item.id === sourceNode.id && sourceNode.type === CanvasNodeType.Config)
+                                return { ...item, metadata: { ...item.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } };
+                            return item;
+                        });
+                    });
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
@@ -2520,15 +2639,16 @@ function InfiniteCanvasPage() {
                 );
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
+                if (generationRequestsRef.current.get(node.id)?.controller !== controller) return;
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 message.error(errorDetails);
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
             } finally {
                 finishGenerationRequest(node.id, controller);
-                setRunningNodeId(null);
+                clearRunningNodeIfOwned(runningId, controller);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [clearRunningNodeIfOwned, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
     const generateImageFromTextNode = useCallback(
