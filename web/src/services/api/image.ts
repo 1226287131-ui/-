@@ -236,7 +236,8 @@ function supportsGeminiImageSize(model: string) {
         || value.includes("3-pro")
         || value.includes("nano banana")
         || value.includes("banana2")
-        || value.includes("bananapro");
+        || value.includes("bananapro")
+        || /nano[\s_-]*banana[\s_-]*(?:2|pro)\b/i.test(model);
 }
 
 function resolveImageDataUrl(item: Record<string, unknown>) {
@@ -356,7 +357,7 @@ function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
 }
 
 function geminiModelName(model: string) {
-    return model.trim().replace(/^models\//, "");
+    return model;
 }
 
 function geminiApiUrl(config: Pick<AiConfig, "baseUrl" | "model">, action?: "generateContent" | "streamGenerateContent") {
@@ -695,7 +696,7 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
     const response = await axios.post<GeminiPayload>(
         geminiApiUrl(config, "generateContent"),
         {
-            ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: { responseModalities: ["TEXT", "IMAGE"], ...resolveGeminiImageConfig(config) } }),
+            ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: { responseModalities: ["IMAGE"], ...resolveGeminiImageConfig(config) } }),
             contents: [{ role: "user", parts }],
         },
         { headers: geminiHeaders(config), signal: options?.signal },

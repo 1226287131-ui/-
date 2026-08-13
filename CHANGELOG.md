@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [修复] Gemini 生图改用原生 `generationConfig.imageConfig` 参数，Nano Banana 2 和 Nano Banana Pro 可正确提交 1K、2K、4K 图片尺寸。
 + [调整] 升级上游无限画布至 v0.15.1，并保留多模型视频生成、画布批量视频及本地参考素材转存能力。
 + [修复] 视频任务在渠道已完成但成片尚未回传时持续轮询，避免因固定超时或临时查询错误误报失败。
 + [修复] Gemini 生图使用原生 `imageConfig` 发送比例和清晰度，显式选择 2K/4K 时不再因模型别名或默认质量回退为 1K。
