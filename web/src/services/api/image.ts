@@ -203,8 +203,8 @@ function resolveGeminiImageConfig(config: AiConfig) {
     const ratio = dimensions ? `${dimensions.width}:${dimensions.height}` : value;
     const aspectRatio = value && value.toLowerCase() !== "auto" ? closestGeminiAspectRatio(ratio) : undefined;
     const imageSize = supportsGeminiImageSize(config.model) ? resolveGeminiImageSize(config.quality, dimensions) : undefined;
-    const image = { ...(aspectRatio ? { aspectRatio } : {}), ...(imageSize ? { imageSize } : {}) };
-    return Object.keys(image).length ? { responseFormat: { image } } : {};
+    const imageConfig = { ...(aspectRatio ? { aspectRatio } : {}), ...(imageSize ? { imageSize } : {}) };
+    return Object.keys(imageConfig).length ? { imageConfig } : {};
 }
 
 function closestGeminiAspectRatio(value: string) {
@@ -218,19 +218,25 @@ function closestGeminiAspectRatio(value: string) {
 }
 
 function resolveGeminiImageSize(quality: string, dimensions: { width: number; height: number } | null) {
+    if (dimensions) {
+        const edge = Math.max(dimensions.width, dimensions.height);
+        if (edge <= 768) return "512";
+        if (edge <= 1536) return "1K";
+        if (edge <= 3072) return "2K";
+        return "4K";
+    }
     const normalizedQuality = normalizeQuality(quality);
-    if (normalizedQuality) return GEMINI_IMAGE_SIZE_BY_QUALITY[normalizedQuality];
-    if (!dimensions) return undefined;
-    const edge = Math.max(dimensions.width, dimensions.height);
-    if (edge <= 768) return "512";
-    if (edge <= 1536) return "1K";
-    if (edge <= 3072) return "2K";
-    return "4K";
+    return normalizedQuality ? GEMINI_IMAGE_SIZE_BY_QUALITY[normalizedQuality] : undefined;
 }
 
 function supportsGeminiImageSize(model: string) {
     const value = model.toLowerCase();
-    return value.includes("gemini-3") || value.includes("3.1") || value.includes("3-pro");
+    return value.includes("gemini-3")
+        || value.includes("3.1")
+        || value.includes("3-pro")
+        || value.includes("nano banana")
+        || value.includes("banana2")
+        || value.includes("bananapro");
 }
 
 function resolveImageDataUrl(item: Record<string, unknown>) {
