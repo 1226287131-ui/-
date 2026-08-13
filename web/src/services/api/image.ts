@@ -699,18 +699,26 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
 
 function parseGeminiImagePayload(payload: GeminiPayload) {
     validateGeminiPayload(payload);
-    const images =
-        payload.candidates
-            ?.flatMap((candidate) => candidate.content?.parts || [])
-            .map((part) => {
-                const inlineData = part.inlineData || (part.inline_data ? { mimeType: part.inline_data.mimeType || part.inline_data.mime_type, data: part.inline_data.data } : undefined);
-                if (inlineData?.data) return `data:${inlineData.mimeType || "image/png"};base64,${inlineData.data}`;
-                return part.fileData?.fileUri || null;
-            })
-            .filter((value): value is string => Boolean(value))
-            .map((dataUrl) => ({ id: nanoid(), dataUrl })) || [];
+    const sources = new Set<string>();
+    for (const part of payload.candidates?.flatMap((candidate) => candidate.content?.parts || []) || []) {
+        const inlineData = part.inlineData || (part.inline_data ? { mimeType: part.inline_data.mimeType || part.inline_data.mime_type, data: part.inline_data.data } : undefined);
+        if (inlineData?.data) sources.add(`data:${inlineData.mimeType || "image/png"};base64,${inlineData.data}`);
+        if (part.fileData?.fileUri) sources.add(part.fileData.fileUri);
+        for (const url of extractGeminiMarkdownImageUrls(part.text || "")) sources.add(url);
+    }
+    const images = Array.from(sources, (dataUrl) => ({ id: nanoid(), dataUrl }));
     if (!images.length) throw new Error(apiText("geminiNoImage"));
     return images;
+}
+
+function extractGeminiMarkdownImageUrls(text: string) {
+    const urls: string[] = [];
+    const markdownImagePattern = /!\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)>]+)>?(?:\s+["'][^)]*["'])?\s*\)/gi;
+    for (const match of text.matchAll(markdownImagePattern)) {
+        const url = match[1]?.trim();
+        if (url) urls.push(url);
+    }
+    return urls;
 }
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {

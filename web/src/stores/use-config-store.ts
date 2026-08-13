@@ -67,6 +67,15 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const BUILT_IN_VIDEO_MODELS = [
+    "video-v1",
+    "grok-imagine-1.5-video",
+    "video-v2",
+    "video-v2-fast",
+    "video-v2-满血兜底版",
+    "video-v3",
+    "MiniMax-H3-933-1440P-GF",
+] as const;
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -82,7 +91,7 @@ export const defaultConfig: AiConfig = {
             apiFormat: "openai",
             models: [
                 { name: "gpt-image-2", capability: "image" },
-                { name: "grok-imagine-video", capability: "video" },
+                ...BUILT_IN_VIDEO_MODELS.map((name) => ({ name, capability: "video" as const })),
                 { name: "gpt-5.5", capability: "text" },
                 { name: "gpt-4o-mini-tts", capability: "audio" },
             ],
@@ -90,7 +99,7 @@ export const defaultConfig: AiConfig = {
     ],
     model: "default::gpt-image-2",
     imageModel: "default::gpt-image-2",
-    videoModel: "default::grok-imagine-video",
+    videoModel: "default::grok-imagine-1.5-video",
     textModel: "default::gpt-5.5",
     audioModel: "default::gpt-4o-mini-tts",
     audioVoice: "alloy",
@@ -103,7 +112,7 @@ export const defaultConfig: AiConfig = {
     videoWatermark: "false",
     systemPrompt: "",
     reasoningEffort: "auto",
-    models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    models: ["default::gpt-image-2", ...BUILT_IN_VIDEO_MODELS.map((name) => `default::${name}`), "default::gpt-5.5", "default::gpt-4o-mini-tts"],
     quality: "auto",
     size: "1:1",
     background: "",
@@ -133,7 +142,7 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo"];
+const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo", "minimax"];
 const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound"];
 const IMAGE_KEYWORDS = ["seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
 
@@ -222,7 +231,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
                 if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
+                const channels = ensureBuiltInVideoModels(normalizeChannels(config));
                 const models = modelOptionsFromChannels(channels);
                 return {
                     ...current,
@@ -368,6 +377,14 @@ function normalizeChannels(config: AiConfig) {
         );
     }
     return channels;
+}
+
+function ensureBuiltInVideoModels(channels: ModelChannel[]) {
+    const known = new Set(channels.flatMap((channel) => channel.models.map((model) => model.name.trim().toLowerCase())));
+    const missing = BUILT_IN_VIDEO_MODELS.filter((model) => !known.has(model.toLowerCase()));
+    if (!missing.length) return channels;
+    const targetIndex = Math.max(0, channels.findIndex((channel) => channel.id === "default"));
+    return channels.map((channel, index) => (index === targetIndex ? { ...channel, models: normalizeChannelModels([...channel.models, ...missing.map((name) => ({ name, capability: "video" as const }))]) } : channel));
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {

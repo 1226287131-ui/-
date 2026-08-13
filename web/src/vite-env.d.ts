@@ -11,4 +11,6 @@ interface ImportMetaEnv {
     readonly VITE_ANALYTICS_GA4_ID?: string;
     // Baidu Analytics site ID
     readonly VITE_ANALYTICS_BAIDU_ID?: string;
+    // Public endpoint for temporary reference-media uploads.
+    readonly VITE_MEDIA_UPLOAD_URL?: string;
 }

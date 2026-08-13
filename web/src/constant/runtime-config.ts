@@ -8,6 +8,7 @@
 type RuntimeConfig = {
     ANALYTICS_GA4_ID?: string; // GA4 measurement ID (G-XXXX)
     ANALYTICS_BAIDU_ID?: string; // Baidu Analytics site ID
+    MEDIA_UPLOAD_URL?: string; // Public upload endpoint for reference media
 };
 
 declare global {
@@ -27,3 +28,4 @@ function read(key: keyof RuntimeConfig, buildTime: string | undefined, fallback 
 
 export const ANALYTICS_GA4_ID = read("ANALYTICS_GA4_ID", import.meta.env.VITE_ANALYTICS_GA4_ID);
 export const ANALYTICS_BAIDU_ID = read("ANALYTICS_BAIDU_ID", import.meta.env.VITE_ANALYTICS_BAIDU_ID);
+export const MEDIA_UPLOAD_URL = read("MEDIA_UPLOAD_URL", import.meta.env.VITE_MEDIA_UPLOAD_URL, "/api/uploads");

@@ -6,7 +6,8 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { type AiConfig } from "@/stores/use-config-store";
+import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
     { value: "720", label: "720p" },
@@ -31,16 +32,29 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
+    model?: string;
     onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
+    referenceImageCount?: number;
 };
 
-export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
+export function VideoSettingsPanel({ config, model: selectedModel, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", referenceImageCount = 0 }: VideoSettingsPanelProps) {
     const { t } = useTranslation();
-    if (isSeedanceVideoConfig(config)) {
-        return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+    const videoModel = selectedModel || config.model || config.videoModel;
+    const videoConfig = { ...config, model: videoModel };
+    if (isSeedanceVideoConfig(videoConfig)) {
+        return <SeedanceVideoSettingsPanel config={config} model={videoModel} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+    }
+
+    const model = modelOptionName(videoModel);
+    const profile = getVideoModelProfile(model);
+    if (profile.kind === "minimax-h3") {
+        return <MiniMaxH3VideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+    }
+    if (profile.kind !== "generic") {
+        return <RemoteVideoSettingsPanel config={config} model={model} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} referenceImageCount={referenceImageCount} />;
     }
 
     const seconds = config.videoSeconds || "6";
@@ -108,7 +122,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     );
 }
 
-function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
+function SeedanceVideoSettingsPanel({ config, model: selectedModel, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const { t } = useTranslation();
     const resolution = normalizeSeedanceResolution(config.vquality);
     const ratio = normalizeSeedanceRatio(config.size);
@@ -163,6 +177,103 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                         <SwitchRow label={t("settingsPanels.video.watermark")} checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} />
                     </div>
                 </SettingGroup>
+            </div>
+        </ImageSettingsTheme>
+    );
+}
+
+function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps & { model: string }) {
+    const { t } = useTranslation();
+    const profile = getVideoModelProfile(model);
+    const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const size = normalizeVideoSizeForModel(model, config.size);
+    const sizes = profile.sizes || [];
+
+    return (
+        <ImageSettingsTheme theme={theme}>
+            <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
+                {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.video.title")}</div> : null}
+                <SettingGroup title={t("settingsPanels.video.size")} color={theme.node.muted}>
+                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                        {sizes.map((item) => {
+                            const [width, height] = item.split("x").map(Number);
+                            return (
+                                <button key={item} type="button" className="flex min-h-[74px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-xs transition hover:opacity-80" style={{ borderColor: size === item ? theme.node.text : theme.node.stroke, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={() => onConfigChange("size", item)}>
+                                    <SizePreview width={width} height={height} color={theme.node.text} />
+                                    <span>{item}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </SettingGroup>
+                <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {profile.seconds.map((value) => (
+                            <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                {value}s
+                            </OptionPill>
+                        ))}
+                    </div>
+                </SettingGroup>
+                <SettingGroup title={t("settingsPanels.video.output")} color={theme.node.muted}>
+                    <SwitchRow label={t("settingsPanels.video.generateAudio")} checked={boolConfig(config.videoGenerateAudio, true)} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                </SettingGroup>
+            </div>
+        </ImageSettingsTheme>
+    );
+}
+
+function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTitle, className, referenceImageCount = 0 }: VideoSettingsPanelProps & { model: string }) {
+    const { t } = useTranslation();
+    const profile = getVideoModelProfile(model);
+    const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const ratio = normalizeVideoRatioForModel(model, config.size);
+    const quality = normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
+    const isGrok = profile.kind === "grok";
+    const isV2Full = profile.kind === "video-v2-full";
+    const isV3 = profile.kind === "video-v3";
+    const qualityOptions = isGrok && referenceImageCount > 1 ? profile.qualityOptions.filter((item) => item !== "1080p") : profile.qualityOptions;
+
+    return (
+        <ImageSettingsTheme theme={theme}>
+            <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
+                {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.video.title")}</div> : null}
+                <SettingGroup title={t("settingsPanels.video.ratio")} color={theme.node.muted}>
+                    <div className={`grid gap-2.5 ${isV2Full ? "grid-cols-2" : "grid-cols-3"}`}>
+                        {profile.ratios.map((item) => (
+                            <OptionPill key={item} selected={ratio === item} theme={theme} onClick={() => onConfigChange("size", item)}>
+                                {item}
+                            </OptionPill>
+                        ))}
+                    </div>
+                </SettingGroup>
+                {profile.qualityOptions.length ? (
+                    <SettingGroup title={t("settingsPanels.video.resolution")} color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {(profile.resolution === "fixed" ? profile.qualityOptions : qualityOptions).map((item) => (
+                                <OptionPill key={item} selected={quality === item} disabled={profile.resolution === "fixed"} theme={theme} onClick={() => onConfigChange("vquality", item)}>
+                                    {item}
+                                </OptionPill>
+                            ))}
+                        </div>
+                        {isGrok && referenceImageCount > 1 ? <div className="text-[11px] leading-4 opacity-55">{t("settingsPanels.video.multiReferenceResolution")}</div> : null}
+                    </SettingGroup>
+                ) : null}
+                <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
+                    <div className={`grid gap-2.5 ${profile.seconds.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>
+                        {profile.seconds.map((value) => (
+                            <OptionPill key={value} selected={seconds === String(value)} disabled={isV2Full} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                {value}s
+                            </OptionPill>
+                        ))}
+                    </div>
+                    {isGrok ? <NumberInput value={seconds} min={1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} /> : null}
+                </SettingGroup>
+                {isV3 ? (
+                    <SettingGroup title={t("settingsPanels.video.output")} color={theme.node.muted}>
+                        <SwitchRow label={t("settingsPanels.video.generateAudio")} checked={boolConfig(config.videoGenerateAudio, true)} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                    </SettingGroup>
+                ) : null}
             </div>
         </ImageSettingsTheme>
     );

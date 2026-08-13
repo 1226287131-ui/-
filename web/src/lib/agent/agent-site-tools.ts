@@ -5,6 +5,7 @@ import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
 import { imageAspectOptions, imageQualityOptions } from "@/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/components/video-settings-panel";
+import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -188,42 +189,62 @@ function runImageWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
 function getVideoConfig() {
     const { config } = useConfigStore.getState();
     const model = config.videoModel || config.model;
+    const modelName = modelOptionName(model);
+    const profile = getVideoModelProfile(modelName);
+    const constrained = profile.kind !== "generic";
+    const ratioLabels: Record<string, string> = { auto: "auto", "21:9": "21:9", "16:9": "16:9", "9:16": "9:16", "1:1": "1:1", "4:3": "4:3", "3:4": "3:4", "2:3": "2:3", "3:2": "3:2" };
+    const sizeOptions = constrained ? (profile.kind === "minimax-h3" ? (profile.sizes || []).map((value) => ({ value, label: value })) : profile.ratios.map((value) => ({ value, label: ratioLabels[value] || value }))) : videoSizeOptions;
+    const resolutionOptions =
+        profile.kind === "video-v1" || profile.kind === "video-v2-full" || profile.kind === "video-v3"
+            ? [{ value: "720p", label: "720p" }]
+            : profile.kind === "video-v2" || profile.kind === "grok"
+              ? profile.qualityOptions.map((value) => ({ value, label: value }))
+              : profile.kind === "minimax-h3"
+                ? []
+                : videoResolutionOptions;
     return {
         current: {
             model,
-            modelName: modelOptionName(model),
-            size: config.size || "1280x720",
-            seconds: config.videoSeconds || "6",
-            resolution: config.vquality || "720",
+            modelName,
+            size: constrained ? normalizeVideoSizeForModel(modelName, config.size) : config.size || "1280x720",
+            seconds: constrained ? normalizeVideoSecondsForModel(modelName, config.videoSeconds) : config.videoSeconds || "6",
+            resolution: profile.kind === "minimax-h3" ? "" : constrained ? normalizeVideoQualityForModel(modelName, config.vquality) : config.vquality || "720",
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
-        sizeOptions: videoSizeOptions,
-        secondsOptions: videoSecondOptions,
-        resolutionOptions: videoResolutionOptions,
+        sizeOptions,
+        secondsOptions: constrained ? profile.seconds.map(String) : videoSecondOptions,
+        resolutionOptions,
     };
 }
 
 function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     const configStore = useConfigStore.getState();
     const applied: Record<string, unknown> = {};
+    let selectedModel = configStore.config.videoModel || configStore.config.model;
     if (typeof input.model === "string" && input.model.trim()) {
         const value = normalizeModelOptionValue(input.model, configStore.config.channels) || input.model;
         configStore.updateConfig("videoModel", value);
+        selectedModel = value;
         applied.model = value;
     }
+    const modelName = modelOptionName(selectedModel);
+    const constrained = getVideoModelProfile(modelName).kind !== "generic";
     if (typeof input.size === "string" && input.size.trim()) {
-        configStore.updateConfig("size", input.size);
-        applied.size = input.size;
+        const value = constrained ? normalizeVideoSizeForModel(modelName, input.size) : input.size;
+        configStore.updateConfig("size", value);
+        applied.size = value;
     }
     if (typeof input.seconds === "string" && input.seconds.trim()) {
-        configStore.updateConfig("videoSeconds", input.seconds);
-        applied.seconds = input.seconds;
+        const value = constrained ? normalizeVideoSecondsForModel(modelName, input.seconds) : input.seconds;
+        configStore.updateConfig("videoSeconds", value);
+        applied.seconds = value;
     }
     if (typeof input.resolution === "string" && input.resolution.trim()) {
-        configStore.updateConfig("vquality", input.resolution);
-        applied.resolution = input.resolution;
+        const value = constrained ? normalizeVideoQualityForModel(modelName, input.resolution) : input.resolution;
+        configStore.updateConfig("vquality", value);
+        applied.resolution = value;
     }
     if (typeof input.generateAudio === "boolean") {
         configStore.updateConfig("videoGenerateAudio", String(input.generateAudio));
