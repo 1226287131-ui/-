@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, MINIMAX_H3_ASPECT_RATIOS, getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
@@ -187,24 +187,41 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
     const profile = getVideoModelProfile(model);
     const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
     const size = normalizeVideoSizeForModel(model, config.size);
-    const sizes = profile.sizes || [];
+    const ratio = getMiniMaxH3AspectRatioForSize(size);
+    const sizes = getMiniMaxH3SizeOptionsForRatio(ratio);
+
+    const updateRatio = (nextRatio: string) => {
+        const currentSizes = getMiniMaxH3SizeOptionsForRatio(ratio);
+        const nextSizes = getMiniMaxH3SizeOptionsForRatio(nextRatio);
+        const currentIndex = Math.max(0, currentSizes.indexOf(size));
+        onConfigChange("size", nextSizes[Math.min(currentIndex, nextSizes.length - 1)] || nextSizes[nextSizes.length - 1]);
+    };
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.video.title")}</div> : null}
-                <SettingGroup title={t("settingsPanels.video.size")} color={theme.node.muted}>
-                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                        {sizes.map((item) => {
-                            const [width, height] = item.split("x").map(Number);
-                            return (
-                                <button key={item} type="button" className="flex min-h-[74px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-xs transition hover:opacity-80" style={{ borderColor: size === item ? theme.node.text : theme.node.stroke, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={() => onConfigChange("size", item)}>
-                                    <SizePreview width={width} height={height} color={theme.node.text} />
-                                    <span>{item}</span>
-                                </button>
-                            );
-                        })}
+                <SettingGroup title={t("settingsPanels.video.ratio")} color={theme.node.muted}>
+                    <div className="grid grid-cols-4 gap-2.5">
+                        {MINIMAX_H3_ASPECT_RATIOS.map((item) => (
+                            <OptionPill key={item} selected={ratio === item} theme={theme} onClick={() => updateRatio(item)}>
+                                {item}
+                            </OptionPill>
+                        ))}
                     </div>
+                </SettingGroup>
+                <SettingGroup title={t("settingsPanels.video.size")} color={theme.node.muted}>
+                    <select
+                        value={size}
+                        aria-label={t("settingsPanels.video.size")}
+                        className="h-10 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
+                        style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.node.fill }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onChange={(event) => onConfigChange("size", event.target.value)}
+                    >
+                        {sizes.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                    <div className="text-[11px] leading-4 opacity-55">{ratio} 共 {sizes.length} 档，按参考项目的 32 像素对齐尺寸提供。</div>
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
