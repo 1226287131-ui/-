@@ -67,6 +67,7 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const MINIMAX_BASE_URL = "https://api.kkone.vip";
 const BUILT_IN_VIDEO_MODELS = [
     "video-v1",
     "grok-imagine-1.5-video",
@@ -74,6 +75,7 @@ const BUILT_IN_VIDEO_MODELS = [
     "video-v2-fast",
     "video-v2-满血兜底版",
     "video-v3",
+    "MiniMax-H3",
     "MiniMax-H3-933-1440P-GF",
 ] as const;
 
@@ -345,10 +347,15 @@ export function resolveModelChannel(config: AiConfig, value: string) {
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
+    const model = modelOptionName(value || config.model);
+    const isMiniMaxH3 = model.toLowerCase().includes("minimax-h3");
+    const baseUrl = isMiniMaxH3 && (!channel.baseUrl.trim() || channel.baseUrl.trim().replace(/\/+$/, "") === OPENAI_BASE_URL)
+        ? MINIMAX_BASE_URL
+        : channel.baseUrl;
     return {
         ...config,
-        model: modelOptionName(value || config.model),
-        baseUrl: channel.baseUrl,
+        model,
+        baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
     };

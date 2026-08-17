@@ -215,9 +215,6 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
                         ))}
                     </div>
                 </SettingGroup>
-                <SettingGroup title={t("settingsPanels.video.output")} color={theme.node.muted}>
-                    <SwitchRow label={t("settingsPanels.video.generateAudio")} checked={boolConfig(config.videoGenerateAudio, true)} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
-                </SettingGroup>
             </div>
         </ImageSettingsTheme>
     );

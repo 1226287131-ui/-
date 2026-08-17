@@ -308,21 +308,25 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     const modelName = modelOptionName(model);
     const profile = getVideoModelProfile(modelName);
     if (!prompt.trim()) throw new Error(apiText("videoPromptRequired"));
-    if (references.length > profile.maxImages) throw new Error(`MiniMax-H3-933-1440P-GF 最多支持 ${profile.maxImages} 张参考图`);
-    if (videoReferences.length) throw new Error("MiniMax-H3-933-1440P-GF 不支持参考视频");
-    if (audioReferences.length) throw new Error("MiniMax-H3-933-1440P-GF 不支持参考音频");
-    const media = await resolveReferenceMediaUrls(references, [], []);
+    if (references.length > profile.maxImages) throw new Error(`MiniMax-H3 最多支持 ${profile.maxImages} 张参考图`);
+    if (videoReferences.length > profile.maxVideos) throw new Error(`MiniMax-H3 最多支持 ${profile.maxVideos} 个参考视频`);
+    if (audioReferences.length > profile.maxAudios) throw new Error(`MiniMax-H3 最多支持 ${profile.maxAudios} 个独立参考音频`);
+    const media = await resolveReferenceMediaUrls(references, videoReferences, audioReferences);
+    const images = uniqueMiniMaxMediaUrls(media.images);
+    const videos = uniqueMiniMaxMediaUrls(media.videos);
+    const audios = uniqueMiniMaxMediaUrls(media.audios);
     const payload: Record<string, unknown> = {
         model: modelName,
-        prompt,
+        prompt: prompt.trim(),
         seconds: Number(normalizeVideoSecondsForModel(modelName, config.videoSeconds)),
         size: normalizeVideoSizeForModel(modelName, config.size),
-        audio: boolConfig(config.videoGenerateAudio, true),
     };
-    if (media.images.length) payload.images = media.images.slice(0, profile.maxImages);
+    if (images.length) payload.images = images.slice(0, profile.maxImages);
+    if (videos.length) payload.reference_videos = videos.slice(0, profile.maxVideos);
+    if (audios.length) payload.reference_audios = audios.slice(0, profile.maxAudios);
     try {
         const created = unwrapVideoResponse(
-            (await axios.post<ApiVideoResponse>(aiApiUrl(config, "/video/generations"), payload, { headers: { ...aiHeaders(config, "application/json"), Accept: "application/json", "Idempotency-Key": nanoid() }, signal: options?.signal })).data,
+            (await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: { ...aiHeaders(config, "application/json"), Accept: "application/json" }, signal: options?.signal })).data,
         );
         const id = taskIdOf(created);
         if (!id) throw new Error(apiText("noVideoTaskId"));
@@ -455,26 +459,40 @@ async function pollGrokTask(config: AiConfig, task: VideoGenerationTask, options
 
 async function pollMiniMaxH3Task(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/video/generations/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
+        const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
         minimaxNotFoundAttempts.delete(task.id);
         const state = unwrapVideoResponse(payload);
         const status = videoStatus(payload);
         if (isFailureStatus(status)) {
             minimaxNotFoundAttempts.delete(task.id);
-            return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "MiniMax-H3-933-1440P-GF 视频生成失败" };
+            return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "MiniMax-H3 视频生成失败" };
         }
         const url = videoResultUrl(payload, config.baseUrl);
-        // MiniMax 没有稳定的 /content 回退接口，只有拿到成片 URL 才结束任务。
         if (url) {
             minimaxNotFoundAttempts.delete(task.id);
             return { status: "completed", result: await videoResultFromUrl(config, url, options, true) };
         }
+        if (isSuccessStatus(status)) return downloadVideoContentWhenReady(config, `/videos/${encodeURIComponent(task.id)}/content`, options);
         return { status: "pending" };
     } catch (error) {
         throwIfRequestAborted(error, options?.signal);
         if (shouldRetryMiniMaxNotFound(error, task.id) || isRetryableVideoPollError(error)) return { status: "pending" };
-        throw new Error(readAxiosError(error, "MiniMax-H3-933-1440P-GF 任务查询失败"));
+        throw new Error(readAxiosError(error, "MiniMax-H3 任务查询失败"));
     }
+}
+
+function uniqueMiniMaxMediaUrls(urls: string[]) {
+    const seenUrls = new Set<string>();
+    const seenFileNames = new Set<string>();
+    return urls.filter((rawUrl) => {
+        const url = rawUrl.trim();
+        if (!url) return false;
+        const fileName = decodeURIComponent(url.split(/[?#]/, 1)[0].split("/").pop() || "").toLowerCase();
+        if (seenUrls.has(url) || (fileName && seenFileNames.has(fileName))) return false;
+        seenUrls.add(url);
+        if (fileName) seenFileNames.add(fileName);
+        return true;
+    });
 }
 
 async function pollOpenCompatibleTask(config: AiConfig, task: VideoGenerationTask, options: RequestOptions | undefined, label: string): Promise<VideoGenerationTaskState> {
