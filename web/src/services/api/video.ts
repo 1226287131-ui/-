@@ -49,7 +49,7 @@ class NonVideoResponseError extends Error {
 }
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; remoteOnly?: boolean };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-v1" | "video-v2" | "video-v2-full" | "video-v3" | "grok" | "minimax-h3" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "video-v1" | "video-v2" | "video-v2-full" | "video-v3" | "video-v3-qy" | "grok" | "minimax-h3" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
@@ -71,7 +71,7 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
     const delayMs =
-        task.provider === "seedance" || task.provider === "video-v1" || task.provider === "video-v2" || task.provider === "video-v2-full" || task.provider === "video-v3" || task.provider === "grok" || task.provider === "minimax-h3" ? 5000 : 2500;
+        task.provider === "seedance" || task.provider === "video-v1" || task.provider === "video-v2" || task.provider === "video-v2-full" || task.provider === "video-v3" || task.provider === "video-v3-qy" || task.provider === "grok" || task.provider === "minimax-h3" ? 5000 : 2500;
     for (;;) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -115,6 +115,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     if (task.provider === "video-v2") return pollVideoV2Task(requestConfig, task, options);
     if (task.provider === "video-v2-full") return pollVideoV2FullTask(requestConfig, task, options);
     if (task.provider === "video-v3") return pollVideoV3Task(requestConfig, task, options);
+    if (task.provider === "video-v3-qy") return pollVideoV3QyTask(requestConfig, task, options);
     if (task.provider === "grok") return pollGrokTask(requestConfig, task, options);
     if (task.provider === "minimax-h3") return pollMiniMaxH3Task(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
@@ -282,10 +283,34 @@ async function createVideoV3Task(config: AiConfig, model: string, prompt: string
     if (images.length > profile.maxImages) throw new Error(`video-v3 最多支持 ${profile.maxImages} 张参考图`);
     if (videos.length > profile.maxVideos) throw new Error(`video-v3 最多支持 ${profile.maxVideos} 个参考视频`);
     if (audios.length > profile.maxAudios) throw new Error(`video-v3 最多支持 ${profile.maxAudios} 个参考音频`);
+    const duration = Number(normalizeVideoSecondsForModel(modelName, config.videoSeconds));
+    // The QY contract accepts up to 29 seconds. Retain the established V3 request at 30 seconds.
+    if (duration <= 29) {
+        const payload: Record<string, unknown> = {
+            model: modelName,
+            prompt: prompt.trim(),
+            duration,
+            aspect_ratio: normalizeVideoRatioForModel(modelName, config.size),
+            resolution: normalizeVideoQualityForModel(modelName, config.vquality),
+            audio: boolConfig(config.videoGenerateAudio, true),
+        };
+        if (images.length) payload.images = images;
+        if (videos.length) payload.videos = videos;
+        if (audios.length) payload.audios = audios;
+        try {
+            const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos/generations"), payload, { headers: { ...aiHeaders(config, "application/json"), Accept: "application/json" }, signal: options?.signal })).data);
+            const id = taskIdOf(created);
+            if (!id) throw new Error(apiText("noVideoTaskId"));
+            return { id, provider: "video-v3-qy", model };
+        } catch (error) {
+            throwIfRequestAborted(error, options?.signal);
+            throw new Error(readAxiosError(error, apiText("videoTaskCreateFailed")));
+        }
+    }
     const payload: Record<string, unknown> = {
         model: modelName,
         prompt: prompt.trim(),
-        duration: Number(normalizeVideoSecondsForModel(modelName, config.videoSeconds)),
+        duration,
         ratio: normalizeVideoRatioForModel(modelName, config.size),
         resolution: "720p",
         generate_audio: boolConfig(config.videoGenerateAudio, true),
@@ -478,6 +503,22 @@ async function pollMiniMaxH3Task(config: AiConfig, task: VideoGenerationTask, op
         throwIfRequestAborted(error, options?.signal);
         if (shouldRetryMiniMaxNotFound(error, task.id) || isRetryableVideoPollError(error)) return { status: "pending" };
         throw new Error(readAxiosError(error, "MiniMax-H3 任务查询失败"));
+    }
+}
+
+async function pollVideoV3QyTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const payload = (await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/generations/${encodeURIComponent(task.id)}`), { headers: aiHeaders(config), timeout: VIDEO_QUERY_TIMEOUT_MS, signal: options?.signal })).data;
+        const state = unwrapVideoResponse(payload);
+        const status = videoStatus(payload);
+        if (isFailureStatus(status)) return { status: "failed", error: readApiErrorMessage(state.error) || readApiErrorMessage(state.message) || "video-v3 视频生成失败" };
+        const url = videoResultUrl(payload, config.baseUrl);
+        if (url) return { status: "completed", result: await videoResultFromUrl(config, url, options, true) };
+        return { status: "pending" };
+    } catch (error) {
+        throwIfRequestAborted(error, options?.signal);
+        if (isRetryableVideoPollError(error)) return { status: "pending" };
+        throw new Error(readAxiosError(error, "video-v3 任务查询失败"));
     }
 }
 

@@ -63,7 +63,7 @@ const VIDEO_V2_FULL_PROFILE: VideoModelProfile = {
 const VIDEO_V3_PROFILE: VideoModelProfile = {
     kind: "video-v3",
     seconds: Array.from({ length: 27 }, (_, index) => index + 4),
-    ratios: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+    ratios: ["16:9", "1:1", "9:16"],
     defaultRatio: "16:9",
     maxImages: 30,
     maxVideos: 10,
@@ -71,8 +71,8 @@ const VIDEO_V3_PROFILE: VideoModelProfile = {
     imageMaxBytes: 20 * 1024 * 1024,
     videoMaxBytes: Number.POSITIVE_INFINITY,
     audioMaxBytes: Number.POSITIVE_INFINITY,
-    resolution: "fixed",
-    qualityOptions: ["720p"],
+    resolution: "selectable",
+    qualityOptions: ["480p", "720p"],
 };
 
 const GROK_PROFILE: VideoModelProfile = {
@@ -218,7 +218,13 @@ export function normalizeVideoQualityForModel(model: string, value: string) {
     const profile = getVideoModelProfile(model);
     if (profile.kind === "video-v1") return "720p";
     if (profile.kind === "video-v2-full") return "720p";
-    if (profile.kind === "video-v3") return "720p";
+    if (profile.kind === "video-v3") {
+        const raw = String(value || "").trim().toLowerCase();
+        // "720" is the legacy global default token; QY defaults to 480p.
+        if (raw === "720") return "480p";
+        const normalized = raw.replace(/p$/, "");
+        return normalized === "720" ? "720p" : "480p";
+    }
     if (profile.kind === "video-v2" || profile.kind === "grok") {
         const normalized = String(value || "")
             .trim()

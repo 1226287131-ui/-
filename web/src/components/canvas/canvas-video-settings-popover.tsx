@@ -67,7 +67,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
                         {isMiniMaxH3
                             ? `${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`
                             : isVideoV3
-                              ? `720p · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`
+                              ? `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`
                               : `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`}
                     </span>
                 </Button>
