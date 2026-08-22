@@ -141,6 +141,11 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
+
+function isMediaNode(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio;
+}
+
 export default function CanvasPage() {
     const [mounted, setMounted] = useState(false);
 
@@ -516,6 +521,39 @@ function InfiniteCanvasPage() {
             setContextMenu(null);
         },
         [message, t],
+    );
+
+    const connectSelectedMediaNodes = useCallback(
+        (current: ConnectionHandle, targetNodeId: string) => {
+            const currentNode = nodesRef.current.find((node) => node.id === current.nodeId);
+            if (!currentNode || !isMediaNode(currentNode) || !selectedNodeIdsRef.current.has(current.nodeId)) {
+                connectNodes(current, targetNodeId);
+                return;
+            }
+
+            const sourceNodes = nodesRef.current.filter((node) => node.id !== targetNodeId && selectedNodeIdsRef.current.has(node.id) && isMediaNode(node));
+            if (sourceNodes.length < 2) {
+                connectNodes(current, targetNodeId);
+                return;
+            }
+
+            const existingConnections = new Set(connectionsRef.current.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
+            const nextConnections = sourceNodes.flatMap((node) => {
+                const connection = normalizeConnection(node.id, targetNodeId, nodesRef.current, current.handleType);
+                if (!connection) return [];
+                const key = `${connection.fromNodeId}:${connection.toNodeId}`;
+                if (existingConnections.has(key)) return [];
+                existingConnections.add(key);
+                return [{ id: nanoid(), ...connection }];
+            });
+            if (!nextConnections.length) return;
+
+            connectionsRef.current = [...connectionsRef.current, ...nextConnections];
+            setConnections((prev) => [...prev, ...nextConnections]);
+            setContextMenu(null);
+            message.success(t("canvas.projectPage.batchConnected", { count: nextConnections.length }));
+        },
+        [connectNodes, message, t],
     );
 
     const createConnectedNode = useCallback(
@@ -1218,7 +1256,7 @@ function InfiniteCanvasPage() {
             if (currentConnection) {
                 const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, currentConnection);
                 if (dropTarget.nodeId) {
-                    connectNodes(currentConnection, dropTarget.nodeId);
+                    connectSelectedMediaNodes(currentConnection, dropTarget.nodeId);
                     setConnecting(null);
                 } else if (dropTarget.isNearNode) {
                     setConnecting(null);
@@ -1228,7 +1266,7 @@ function InfiniteCanvasPage() {
                 }
             }
         },
-        [connectNodes, finishNodeDrag, getConnectionDropTarget, screenToCanvas, setConnecting],
+        [connectSelectedMediaNodes, finishNodeDrag, getConnectionDropTarget, screenToCanvas, setConnecting],
     );
 
     useEffect(() => {
