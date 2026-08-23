@@ -1581,8 +1581,63 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleNodePromptChange = useCallback((nodeId: string, prompt: string) => {
-        setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, prompt } } : node)));
+        setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, prompt, ...(node.type === CanvasNodeType.Video ? { inputPrompt: prompt } : {}) } } : node)));
     }, []);
+
+    const createVideoNodeFromExisting = useCallback(
+        (sourceNode: CanvasNodeData) => {
+            if (sourceNode.type !== CanvasNodeType.Video) return;
+
+            const currentNodes = nodesRef.current;
+            const currentConnections = connectionsRef.current;
+            const currentSourceNode = currentNodes.find((node) => node.id === sourceNode.id) || sourceNode;
+            const sourceMetadata = currentSourceNode.metadata;
+            const sourceReferences = buildNodeMentionReferences(currentSourceNode, currentNodes, currentConnections);
+            const sourcePrompt = (sourceMetadata?.inputPrompt || sourceMetadata?.prompt || sourceMetadata?.composerContent || "").trim();
+            const prompt = sourcePrompt.replace(/@\[node:([^\]]+)\]/g, (token, nodeId: string) => sourceReferences.find((reference) => reference.nodeId === nodeId)?.label || token);
+            const newNode = createCanvasNode(
+                CanvasNodeType.Video,
+                {
+                    x: currentSourceNode.position.x + currentSourceNode.width + 96 + NODE_DEFAULT_SIZE[CanvasNodeType.Video].width / 2,
+                    y: currentSourceNode.position.y + currentSourceNode.height / 2,
+                },
+                {
+                    status: NODE_STATUS_IDLE,
+                    prompt,
+                    inputPrompt: prompt,
+                    count: sourceMetadata?.count || 1,
+                    ...(sourceMetadata?.model ? { model: sourceMetadata.model } : {}),
+                    ...(sourceMetadata?.size ? { size: sourceMetadata.size } : {}),
+                    ...(sourceMetadata?.seconds ? { seconds: sourceMetadata.seconds } : {}),
+                    ...(sourceMetadata?.vquality ? { vquality: sourceMetadata.vquality } : {}),
+                    ...(sourceMetadata?.videoWorkflow ? { videoWorkflow: sourceMetadata.videoWorkflow } : {}),
+                    ...(sourceMetadata?.videoWorkflowSize ? { videoWorkflowSize: sourceMetadata.videoWorkflowSize } : {}),
+                    ...(sourceMetadata?.generateAudio ? { generateAudio: sourceMetadata.generateAudio } : {}),
+                    ...(sourceMetadata?.watermark ? { watermark: sourceMetadata.watermark } : {}),
+                },
+            );
+            const nextNodes = [...currentNodes, newNode];
+            const resourceNodeIds = sourceReferences
+                .map((reference) => reference.nodeId)
+                .filter((nodeId, index, ids) => nodeId !== sourceNode.id && ids.indexOf(nodeId) === index);
+            const nextConnections = resourceNodeIds.flatMap((nodeId) => {
+                const connection = normalizeConnection(nodeId, newNode.id, nextNodes, "source");
+                return connection ? [{ id: nanoid(), ...connection }] : [];
+            });
+
+            nodesRef.current = nextNodes;
+            connectionsRef.current = [...currentConnections, ...nextConnections];
+            setNodes(nextNodes);
+            setConnections(connectionsRef.current);
+            setSelectedNodeIds(new Set([newNode.id]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(newNode.id);
+            setToolbarNodeId(null);
+            setContextMenu(null);
+            message.success(t("canvas.projectPage.videoNodeCreated"));
+        },
+        [message, t],
+    );
 
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
@@ -2831,6 +2886,7 @@ function InfiniteCanvasPage() {
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
                     onStop={confirmStopGeneration}
+                    onCreateVideoNode={createVideoNodeFromExisting}
                     modeOverride={getNodeDefinition(panelNode.type)?.useBuiltinPanel?.mode}
                     onImageSettingsOpenChange={(open) => {
                         setNodeImageSettingsOpen(open);
@@ -2838,7 +2894,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, createVideoNodeFromExisting, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(

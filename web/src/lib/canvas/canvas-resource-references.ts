@@ -54,6 +54,8 @@ export async function resolveCanvasReferenceImages(references: CanvasResourceRef
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
+    const inheritedInputs = getUpstreamConfigResourceNodes(nodeId, nodes, connections);
+    if (inheritedInputs.length) return inheritedInputs;
     const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
     if (ownInputs.length) return ownInputs;
     const node = nodes.find((item) => item.id === nodeId);
@@ -63,9 +65,19 @@ export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[],
 export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
+    const inheritedInputs = getUpstreamConfigResourceNodes(nodeId, nodes, connections);
+    if (inheritedInputs.length) return inheritedInputs;
     const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
     if (ownInputs.length) return ownInputs;
     return [];
+}
+
+function getUpstreamConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const upstreamConfig = connections
+        .filter((connection) => connection.toNodeId === nodeId)
+        .map((connection) => nodes.find((node) => node.id === connection.fromNodeId))
+        .find((node): node is CanvasNodeData => Boolean(node && node.type === CanvasNodeType.Config));
+    return upstreamConfig ? getContextResourceNodes(upstreamConfig.id, nodes, connections) : [];
 }
 
 function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {

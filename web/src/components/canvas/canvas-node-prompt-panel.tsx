@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Maximize2, Square } from "lucide-react";
+import { ArrowUp, CopyPlus, LoaderCircle, Maximize2, Square } from "lucide-react";
 import { Button, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -25,12 +25,13 @@ type CanvasNodePromptPanelProps = {
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onStop: (nodeId: string) => void;
+    onCreateVideoNode?: (node: CanvasNodeData) => void;
     mentionReferences?: CanvasResourceReference[];
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // Plugin nodes set their generation type through useBuiltinPanel.mode.
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, onCreateVideoNode, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const { t } = useTranslation();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -41,12 +42,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
+    const [prompt, setPrompt] = useState(readNodePrompt(node));
     const [expanded, setExpanded] = useState(false);
 
     // Restore prompts only when switching nodes; preserve the current input after generation on the same node.
     useEffect(() => {
-        setPrompt(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
+        setPrompt(readNodePrompt(node));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [node.id]);
 
@@ -120,26 +121,40 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     )}
                 </div>
-                <Button
-                    type="primary"
-                    className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
-                    danger={isRunning}
-                    disabled={!isRunning && !prompt.trim()}
-                    onClick={() => (isRunning ? onStop(node.id) : submit())}
-                    aria-label={t(isRunning ? "canvas.promptPanel.stopGeneration" : "canvas.promptPanel.generate")}
-                >
-                    <span className="flex items-center gap-1.5">
-                        {isRunning ? (
-                            <>
-                                <LoaderCircle className="size-4 animate-spin" />
-                                <Square className="size-3.5 fill-current" />
-                                <span className="text-xs font-medium">{t("canvas.promptPanel.stop")}</span>
-                            </>
-                        ) : (
-                            <ArrowUp className="size-4" />
-                        )}
-                    </span>
-                </Button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                    {mode === "video" && onCreateVideoNode ? (
+                        <Tooltip title={t("canvas.promptPanel.copyVideoNode")}>
+                            <Button
+                                type="text"
+                                className="!h-10 !w-10 !min-w-10 !rounded-full !p-0"
+                                style={{ color: theme.node.text }}
+                                icon={<CopyPlus className="size-4" />}
+                                onClick={() => onCreateVideoNode(node)}
+                                aria-label={t("canvas.promptPanel.copyVideoNode")}
+                            />
+                        </Tooltip>
+                    ) : null}
+                    <Button
+                        type="primary"
+                        className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
+                        danger={isRunning}
+                        disabled={!isRunning && !prompt.trim()}
+                        onClick={() => (isRunning ? onStop(node.id) : submit())}
+                        aria-label={t(isRunning ? "canvas.promptPanel.stopGeneration" : "canvas.promptPanel.generate")}
+                    >
+                        <span className="flex items-center gap-1.5">
+                            {isRunning ? (
+                                <>
+                                    <LoaderCircle className="size-4 animate-spin" />
+                                    <Square className="size-3.5 fill-current" />
+                                    <span className="text-xs font-medium">{t("canvas.promptPanel.stop")}</span>
+                                </>
+                            ) : (
+                                <ArrowUp className="size-4" />
+                            )}
+                        </span>
+                    </Button>
+                </div>
             </div>
             <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
@@ -155,6 +170,10 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             </Modal>
         </div>
     );
+}
+
+function readNodePrompt(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Video ? node.metadata?.inputPrompt ?? node.metadata?.prompt ?? "" : node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
 }
 
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
