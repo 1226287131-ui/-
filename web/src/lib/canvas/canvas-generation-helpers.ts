@@ -108,6 +108,8 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         background: node?.metadata?.background ?? config.background ?? defaultConfig.background,
         videoSeconds: mode === "video" ? videoSettings.seconds : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: mode === "video" ? videoSettings.quality : node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
+        videoWorkflow: node?.metadata?.videoWorkflow || config.videoWorkflow || defaultConfig.videoWorkflow,
+        videoWorkflowSize: node?.metadata?.videoWorkflowSize || config.videoWorkflowSize || defaultConfig.videoWorkflowSize,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,

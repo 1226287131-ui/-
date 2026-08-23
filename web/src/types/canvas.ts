@@ -41,6 +41,7 @@ export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
     prompt?: string;
+    inputPrompt?: string;
     status?: CanvasNodeStatus;
     errorDetails?: string;
     fontSize?: number;
@@ -54,6 +55,8 @@ export type CanvasNodeMetadata = {
     count?: number;
     seconds?: string;
     vquality?: string;
+    videoWorkflow?: string;
+    videoWorkflowSize?: string;
     generateAudio?: string;
     watermark?: string;
     audioVoice?: string;

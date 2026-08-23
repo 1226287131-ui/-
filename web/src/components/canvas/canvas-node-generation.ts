@@ -48,9 +48,12 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = inputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
+    const normalizedPrompt = prompt.trim();
+    const normalizedUpstreamText = upstreamText.trim();
+    const hasAppendedUpstreamText = Boolean(normalizedUpstreamText) && (normalizedPrompt === normalizedUpstreamText || normalizedPrompt.endsWith(`\n\n${normalizedUpstreamText}`));
 
     return {
-        prompt: upstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
+        prompt: upstreamText && !hasAppendedUpstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
         referenceImages,
         referenceVideos,
         referenceAudios,

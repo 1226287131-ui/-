@@ -2291,11 +2291,14 @@ function InfiniteCanvasPage() {
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoMetadataBase = {
                         prompt: effectivePrompt,
+                        inputPrompt: prompt.trim(),
                         status: NODE_STATUS_LOADING,
                         model: generationConfig.model,
                         size: generationConfig.size,
                         seconds: generationConfig.videoSeconds,
                         vquality: generationConfig.vquality,
+                        videoWorkflow: generationConfig.videoWorkflow,
+                        videoWorkflowSize: generationConfig.videoWorkflowSize,
                         generateAudio: generationConfig.videoGenerateAudio,
                         watermark: generationConfig.videoWatermark,
                         count,
@@ -2519,10 +2522,13 @@ function InfiniteCanvasPage() {
                 return;
             }
 
+            const retryPrompt = node.type === CanvasNodeType.Video
+                ? node.metadata?.inputPrompt || sourceNode.metadata?.inputPrompt || sourceNode.metadata?.prompt || node.metadata?.prompt || ""
+                : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
             const context = hasSavedImageMetadata
                 ? null
                 : await hydrateNodeGenerationContext(
-                      buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || "", {
+                      buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, retryPrompt, {
                           includeAllMediaReferences: node.type === CanvasNodeType.Video,
                           includeSourceMediaReference: node.type === CanvasNodeType.Video,
                       }),
@@ -2583,10 +2589,13 @@ function InfiniteCanvasPage() {
                                           ...item.metadata,
                                           ...videoMetadata(video),
                                           prompt,
+                                          inputPrompt: node.metadata?.inputPrompt || prompt,
                                           model: generationConfig.model,
                                           size: generationConfig.size,
                                           seconds: generationConfig.videoSeconds,
                                           vquality: generationConfig.vquality,
+                                          videoWorkflow: generationConfig.videoWorkflow,
+                                          videoWorkflowSize: generationConfig.videoWorkflowSize,
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
                                       },

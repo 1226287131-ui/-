@@ -5,7 +5,7 @@ import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
 import { imageAspectOptions, imageQualityOptions } from "@/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/components/video-settings-panel";
-import { getVideoModelProfile, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, MINIMAX_H3_WORKFLOW_IDS, MINIMAX_H3_WORKFLOW_SIZES, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -209,6 +209,9 @@ function getVideoConfig() {
             size: constrained ? normalizeVideoSizeForModel(modelName, config.size) : config.size || "1280x720",
             seconds: constrained ? normalizeVideoSecondsForModel(modelName, config.videoSeconds) : config.videoSeconds || "6",
             resolution: profile.kind === "minimax-h3" ? "" : constrained ? normalizeVideoQualityForModel(modelName, config.vquality) : config.vquality || "720",
+            workflow: profile.kind === "minimax-h3" ? normalizeMiniMaxH3WorkflowSelection(config.videoWorkflow) : undefined,
+            workflowId: profile.kind === "minimax-h3" ? normalizeMiniMaxH3WorkflowSelection(config.videoWorkflow) : undefined,
+            workflowSize: profile.kind === "minimax-h3" ? normalizeMiniMaxH3WorkflowSize(config.videoWorkflowSize) : undefined,
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
         },
@@ -216,6 +219,7 @@ function getVideoConfig() {
         sizeOptions,
         secondsOptions: constrained ? profile.seconds.map(String) : videoSecondOptions,
         resolutionOptions,
+        ...(profile.kind === "minimax-h3" ? { workflowOptions: [{ value: "auto", label: "auto" }, ...MINIMAX_H3_WORKFLOW_IDS.map((value) => ({ value, label: value }))], workflowSizeOptions: MINIMAX_H3_WORKFLOW_SIZES.map((value) => ({ value, label: value })) } : {}),
     };
 }
 
@@ -245,6 +249,20 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
         const value = constrained ? normalizeVideoQualityForModel(modelName, input.resolution) : input.resolution;
         configStore.updateConfig("vquality", value);
         applied.resolution = value;
+    }
+    if (getVideoModelProfile(modelName).kind === "minimax-h3") {
+        const workflowInput = typeof input.workflow === "string" ? input.workflow : input.workflow_id;
+        if (typeof workflowInput === "string" && workflowInput.trim()) {
+            const value = normalizeMiniMaxH3WorkflowSelection(workflowInput);
+            configStore.updateConfig("videoWorkflow", value);
+            applied.workflow = value;
+        }
+        const workflowSizeInput = typeof input.workflowSize === "string" ? input.workflowSize : input.workflow_size;
+        if (typeof workflowSizeInput === "string" && workflowSizeInput.trim()) {
+            const value = normalizeMiniMaxH3WorkflowSize(workflowSizeInput);
+            configStore.updateConfig("videoWorkflowSize", value);
+            applied.workflowSize = value;
+        }
     }
     if (typeof input.generateAudio === "boolean") {
         configStore.updateConfig("videoGenerateAudio", String(input.generateAudio));
