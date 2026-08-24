@@ -2,14 +2,14 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
-import { ensureImageReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
+import { ensureReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3WorkflowId, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { resolveReferenceMediaUrls } from "@/services/api/video-media";
-import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceReferenceLabel, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
@@ -83,7 +83,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const normalizedPrompt = normalizeVideoImageReferencePrompt(prompt, references);
+    const normalizedPrompt = normalizeVideoReferencePrompt(prompt, references, videoReferences, audioReferences);
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
@@ -105,10 +105,14 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     return createOpenAIVideoTask(requestConfig, selectedModel, normalizedPrompt, references, options);
 }
 
-function normalizeVideoImageReferencePrompt(prompt: string, references: ReferenceImage[]) {
-    return ensureImageReferenceMentions(
+function normalizeVideoReferencePrompt(prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+    return ensureReferenceMentions(
         prompt,
-        references.map((_, index) => imageReferenceLabel(index)),
+        [
+            ...references.map((_, index) => imageReferenceLabel(index)),
+            ...videoReferences.map((_, index) => seedanceReferenceLabel("video", index)),
+            ...audioReferences.map((_, index) => seedanceReferenceLabel("audio", index)),
+        ],
     );
 }
 

@@ -15,7 +15,7 @@ type Props = {
     references: CanvasResourceReference[];
     onChange: (value: string) => void;
     onSubmit?: () => void;
-    prefixImageMentions?: boolean;
+    prefixMediaMentions?: boolean;
     className?: string;
     style?: CSSProperties;
     placeholder?: string;
@@ -32,7 +32,7 @@ type Token =
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
 // Serialization converts chips back to reference labels while preserving a typed @ prefix.
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, prefixImageMentions = false, className, style, placeholder }: Props) {
+export function CanvasPromptChipInput({ value, references, onChange, onSubmit, prefixMediaMentions = false, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -106,7 +106,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, p
         const editor = editorRef.current;
         if (!editor) return;
         removeActiveMention();
-        const prefix = reference.kind === "image" && prefixImageMentions ? document.createTextNode("@") : null;
+        const prefix = reference.kind !== "text" && prefixMediaMentions ? document.createTextNode("@") : null;
         const chip = createReferenceChip(reference, theme, setImagePreview);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();

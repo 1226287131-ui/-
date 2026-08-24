@@ -14,7 +14,7 @@ import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
-import { ensureImageReferenceMentions } from "@/lib/image-reference-prompt";
+import { ensureReferenceMentions } from "@/lib/image-reference-prompt";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
@@ -53,7 +53,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     }, [node.id]);
 
     const updatePrompt = (value: string) => {
-        const nextPrompt = mode === "video" ? ensureImageReferenceMentions(value, imageReferenceLabels(mentionReferences)) : value;
+        const nextPrompt = mode === "video" ? ensureReferenceMentions(value, mediaReferenceLabels(mentionReferences)) : value;
         setPrompt(nextPrompt);
         if (isEditingExistingContent) onConfigChange(node.id, { composerContent: nextPrompt });
         else onPromptChange(node.id, nextPrompt);
@@ -83,7 +83,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 references={mentionReferences}
                 onChange={updatePrompt}
                 onSubmit={submit}
-                prefixImageMentions={mode === "video"}
+                prefixMediaMentions={mode === "video"}
                 className="thin-scrollbar h-40 w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
                 style={{ background: "transparent", color: theme.node.text }}
                 placeholder={t(`canvas.promptPanel.${mode === "image" && hasImageContent ? "editImage" : mode === "text" && hasTextContent ? "editText" : mode}`)}
@@ -165,7 +165,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         value={prompt}
                         references={mentionReferences}
                         onChange={updatePrompt}
-                        prefixImageMentions={mode === "video"}
+                        prefixMediaMentions={mode === "video"}
                         className="thin-scrollbar h-[52dvh] min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
                         style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text }}
                         placeholder={t(`canvas.promptPanel.${mode === "image" && hasImageContent ? "editImage" : mode === "text" && hasTextContent ? "editText" : mode}`)}
@@ -178,11 +178,11 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
 function readNodePrompt(node: CanvasNodeData, mentionReferences: CanvasResourceReference[]) {
     const prompt = node.type === CanvasNodeType.Video ? node.metadata?.prompt ?? node.metadata?.inputPrompt ?? "" : node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
-    return node.type === CanvasNodeType.Video ? ensureImageReferenceMentions(prompt, imageReferenceLabels(mentionReferences)) : prompt;
+    return node.type === CanvasNodeType.Video ? ensureReferenceMentions(prompt, mediaReferenceLabels(mentionReferences)) : prompt;
 }
 
-function imageReferenceLabels(references: CanvasResourceReference[]) {
-    return references.filter((reference) => reference.kind === "image").map((reference) => reference.label);
+function mediaReferenceLabels(references: CanvasResourceReference[]) {
+    return references.filter((reference) => reference.kind !== "text").map((reference) => reference.label);
 }
 
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {

@@ -13,7 +13,7 @@ export function buildImageReferencePromptText(prompt: string, references: Refere
     return i18n.t("imageReferences.promptPrefix", { labels: labels.join(i18n.t("imageReferences.separator")), prompt: text });
 }
 
-export function ensureImageReferenceMentions(prompt: string, labels: string[]) {
+export function ensureReferenceMentions(prompt: string, labels: string[]) {
     return labels.reduce((text, label) => {
         if (!label) return text;
         return text.replace(new RegExp(`@*${escapeRegExp(label)}(?!\\d)`, "g"), `@${label}`);
