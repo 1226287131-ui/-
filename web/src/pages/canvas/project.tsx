@@ -1594,7 +1594,7 @@ function InfiniteCanvasPage() {
             const currentSourceNode = currentNodes.find((node) => node.id === sourceNode.id) || sourceNode;
             const sourceMetadata = currentSourceNode.metadata;
             const sourceReferences = buildNodeMentionReferences(currentSourceNode, currentNodes, currentConnections);
-            const sourcePrompt = (sourceMetadata?.inputPrompt || sourceMetadata?.prompt || sourceMetadata?.composerContent || "").trim();
+            const sourcePrompt = (sourceMetadata?.prompt || sourceMetadata?.inputPrompt || sourceMetadata?.composerContent || "").trim();
             const prompt = ensureImageReferenceMentions(
                 sourcePrompt.replace(/@\[node:([^\]]+)\]/g, (token, nodeId: string) => sourceReferences.find((reference) => reference.nodeId === nodeId)?.label || token),
                 sourceReferences.filter((reference) => reference.kind === "image").map((reference) => reference.label),
@@ -2351,7 +2351,7 @@ function InfiniteCanvasPage() {
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoMetadataBase = {
                         prompt: effectivePrompt,
-                        inputPrompt: inputPrompt.trim(),
+                        inputPrompt: effectivePrompt,
                         status: NODE_STATUS_LOADING,
                         model: generationConfig.model,
                         size: generationConfig.size,
@@ -2583,7 +2583,7 @@ function InfiniteCanvasPage() {
             }
 
             const retryPrompt = node.type === CanvasNodeType.Video
-                ? node.metadata?.inputPrompt || sourceNode.metadata?.inputPrompt || sourceNode.metadata?.prompt || node.metadata?.prompt || ""
+                ? node.metadata?.prompt || sourceNode.metadata?.prompt || node.metadata?.inputPrompt || sourceNode.metadata?.inputPrompt || ""
                 : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
             const context = hasSavedImageMetadata
                 ? null
@@ -2649,7 +2649,7 @@ function InfiniteCanvasPage() {
                                           ...item.metadata,
                                           ...videoMetadata(video),
                                           prompt,
-                                          inputPrompt: node.metadata?.inputPrompt || prompt,
+                                          inputPrompt: prompt,
                                           model: generationConfig.model,
                                           size: generationConfig.size,
                                           seconds: generationConfig.videoSeconds,

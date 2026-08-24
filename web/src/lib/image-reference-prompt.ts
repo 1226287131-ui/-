@@ -16,7 +16,7 @@ export function buildImageReferencePromptText(prompt: string, references: Refere
 export function ensureImageReferenceMentions(prompt: string, labels: string[]) {
     return labels.reduce((text, label) => {
         if (!label) return text;
-        return text.replace(new RegExp(`(?<!@)${escapeRegExp(label)}`, "g"), `@${label}`);
+        return text.replace(new RegExp(`@*${escapeRegExp(label)}(?!\\d)`, "g"), `@${label}`);
     }, prompt);
 }
 

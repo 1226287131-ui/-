@@ -14,6 +14,7 @@ import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
+import { ensureImageReferenceMentions } from "@/lib/image-reference-prompt";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
@@ -42,19 +43,20 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const [prompt, setPrompt] = useState(readNodePrompt(node));
+    const [prompt, setPrompt] = useState(readNodePrompt(node, mentionReferences));
     const [expanded, setExpanded] = useState(false);
 
     // Restore prompts only when switching nodes; preserve the current input after generation on the same node.
     useEffect(() => {
-        setPrompt(readNodePrompt(node));
+        setPrompt(readNodePrompt(node, mentionReferences));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [node.id]);
 
     const updatePrompt = (value: string) => {
-        setPrompt(value);
-        if (isEditingExistingContent) onConfigChange(node.id, { composerContent: value });
-        else onPromptChange(node.id, value);
+        const nextPrompt = mode === "video" ? ensureImageReferenceMentions(value, imageReferenceLabels(mentionReferences)) : value;
+        setPrompt(nextPrompt);
+        if (isEditingExistingContent) onConfigChange(node.id, { composerContent: nextPrompt });
+        else onPromptChange(node.id, nextPrompt);
     };
 
     const submit = () => {
@@ -174,8 +176,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     );
 }
 
-function readNodePrompt(node: CanvasNodeData) {
-    return node.type === CanvasNodeType.Video ? node.metadata?.inputPrompt ?? node.metadata?.prompt ?? "" : node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
+function readNodePrompt(node: CanvasNodeData, mentionReferences: CanvasResourceReference[]) {
+    const prompt = node.type === CanvasNodeType.Video ? node.metadata?.prompt ?? node.metadata?.inputPrompt ?? "" : node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
+    return node.type === CanvasNodeType.Video ? ensureImageReferenceMentions(prompt, imageReferenceLabels(mentionReferences)) : prompt;
+}
+
+function imageReferenceLabels(references: CanvasResourceReference[]) {
+    return references.filter((reference) => reference.kind === "image").map((reference) => reference.label);
 }
 
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {

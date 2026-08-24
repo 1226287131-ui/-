@@ -2,6 +2,7 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { ensureImageReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3WorkflowId, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
@@ -82,25 +83,33 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const normalizedPrompt = normalizeVideoImageReferencePrompt(prompt, references);
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
-    if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
+    if (script) return createPluginVideoTask(requestConfig, selectedModel, script, normalizedPrompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
     const profile = getVideoModelProfile(modelOptionName(selectedModel));
-    if (profile.kind === "video-v1") return createVideoV1Task(requestConfig, selectedModel, prompt, references, options);
-    if (profile.kind === "video-v2-full") return createVideoV2FullTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    if (profile.kind === "video-v2") return createVideoV2Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    if (profile.kind === "video-v3") return createVideoV3Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
-    if (profile.kind === "minimax-h3") return createMiniMaxH3Task(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+    if (profile.kind === "video-v1") return createVideoV1Task(requestConfig, selectedModel, normalizedPrompt, references, options);
+    if (profile.kind === "video-v2-full") return createVideoV2FullTask(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
+    if (profile.kind === "video-v2") return createVideoV2Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
+    if (profile.kind === "video-v3") return createVideoV3Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
+    if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
+    if (profile.kind === "minimax-h3") return createMiniMaxH3Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
     if (isSeedanceVideoConfig(requestConfig)) {
-        return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
+        return createSeedanceTask(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
     }
     if (videoReferences.length || audioReferences.length) {
         throw new Error(apiText("videoReferencesUnsupported"));
     }
-    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
+    return createOpenAIVideoTask(requestConfig, selectedModel, normalizedPrompt, references, options);
+}
+
+function normalizeVideoImageReferencePrompt(prompt: string, references: ReferenceImage[]) {
+    return ensureImageReferenceMentions(
+        prompt,
+        references.map((_, index) => imageReferenceLabel(index)),
+    );
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
