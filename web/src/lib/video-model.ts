@@ -92,16 +92,17 @@ const GROK_PROFILE: VideoModelProfile = {
 export const MINIMAX_H3_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"] as const;
 
 export type MiniMaxH3AspectRatio = (typeof MINIMAX_H3_ASPECT_RATIOS)[number];
+export const MINIMAX_H3_RESOLUTION_SIZES = ["2K", "4K"] as const;
 
 export const MINIMAX_H3_SIZES_BY_RATIO: Record<MiniMaxH3AspectRatio, readonly string[]> = {
-    "1:1": ["640x640", "1024x1024", "1440x1440"],
-    "2:3": ["544x800", "832x1248", "1184x1760"],
-    "3:2": ["800x544", "1248x832", "1760x1184"],
-    "3:4": ["576x736", "896x1184", "1248x1664"],
-    "4:3": ["736x576", "1184x896", "1664x1248"],
-    "9:16": ["480x864", "768x1376", "1088x1920"],
-    "16:9": ["864x480", "1376x768", "1920x1088"],
-    "21:9": ["992x416", "1568x672", "2208x960"],
+    "1:1": ["640x640", "1024x1024", "1440x1440", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "2:3": ["544x800", "832x1248", "1184x1760", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "3:2": ["800x544", "1248x832", "1760x1184", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "3:4": ["576x736", "896x1184", "1248x1664", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "4:3": ["736x576", "1184x896", "1664x1248", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "9:16": ["480x864", "768x1376", "1088x1920", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "16:9": ["864x480", "1376x768", "1920x1088", ...MINIMAX_H3_RESOLUTION_SIZES],
+    "21:9": ["992x416", "1568x672", "2208x960", ...MINIMAX_H3_RESOLUTION_SIZES],
 };
 
 export const MINIMAX_H3_ALL_SIZES = Array.from(new Set(MINIMAX_H3_ASPECT_RATIOS.flatMap((ratio) => MINIMAX_H3_SIZES_BY_RATIO[ratio])));
@@ -148,6 +149,7 @@ export function getMiniMaxH3SizeOptionsForRatio(ratio: string) {
 }
 
 export function getMiniMaxH3AspectRatioForSize(size: string) {
+    if ((MINIMAX_H3_RESOLUTION_SIZES as readonly string[]).includes(size)) return "16:9";
     const match = MINIMAX_H3_ASPECT_RATIOS.find((ratio) => MINIMAX_H3_SIZES_BY_RATIO[ratio].includes(size));
     return match || "16:9";
 }

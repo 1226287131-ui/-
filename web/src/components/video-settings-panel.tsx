@@ -223,7 +223,7 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
                     >
                         {sizes.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
-                    <div className="text-[11px] leading-4 opacity-55">{ratio} 共 {sizes.length} 档：480P、768P、1080P。</div>
+                    <div className="text-[11px] leading-4 opacity-55">{ratio} 共 {sizes.length} 档：480P、768P、1080P、2K、4K。</div>
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.workflow")} color={theme.node.muted}>
                     <select
