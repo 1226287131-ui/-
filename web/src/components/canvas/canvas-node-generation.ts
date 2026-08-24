@@ -1,6 +1,6 @@
 import type { AiTextMessage } from "@/services/api/image";
 import i18n from "@/i18n";
-import { imageReferenceLabel } from "@/lib/image-reference-prompt";
+import { ensureImageReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -48,12 +48,12 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = inputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
-    const normalizedPrompt = prompt.trim();
+    const normalizedPrompt = (options.includeAllMediaReferences ? normalizeVideoImageReferenceMentions(prompt, inputs) : prompt).trim();
     const normalizedUpstreamText = upstreamText.trim();
     const hasAppendedUpstreamText = Boolean(normalizedUpstreamText) && (normalizedPrompt === normalizedUpstreamText || normalizedPrompt.endsWith(`\n\n${normalizedUpstreamText}`));
 
     return {
-        prompt: upstreamText && !hasAppendedUpstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
+        prompt: upstreamText && !hasAppendedUpstreamText ? `${normalizedPrompt}\n\n${upstreamText}` : normalizedPrompt,
         referenceImages,
         referenceVideos,
         referenceAudios,
@@ -103,7 +103,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
 
     if (!hasToken) {
         return {
-            prompt,
+            prompt: options.includeAllMediaReferences ? normalizeVideoImageReferenceMentions(prompt, referenceInputs) : prompt,
             referenceImages,
             referenceVideos,
             referenceAudios,
@@ -115,7 +115,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     }
 
     return {
-        prompt: nextPrompt,
+        prompt: options.includeAllMediaReferences ? normalizeVideoImageReferenceMentions(nextPrompt, referenceInputs) : nextPrompt,
         referenceImages,
         referenceVideos,
         referenceAudios,
@@ -128,6 +128,11 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
 
 export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationInput[] {
     return getGenerationResourceNodes(nodeId, nodes, connections).flatMap(buildNodeGenerationInput);
+}
+
+export function normalizeVideoImageReferenceMentions(prompt: string, inputs: NodeGenerationInput[]) {
+    const labels = inputs.filter((input) => input.type === "image").map((_, index) => imageReferenceLabel(index));
+    return ensureImageReferenceMentions(prompt, labels);
 }
 
 function buildNodeGenerationInput(node: CanvasNodeData): NodeGenerationInput[] {

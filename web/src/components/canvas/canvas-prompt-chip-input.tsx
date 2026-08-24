@@ -15,6 +15,7 @@ type Props = {
     references: CanvasResourceReference[];
     onChange: (value: string) => void;
     onSubmit?: () => void;
+    prefixImageMentions?: boolean;
     className?: string;
     style?: CSSProperties;
     placeholder?: string;
@@ -30,8 +31,8 @@ type Token =
     | { type: "reference"; label: string };
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
-// Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
+// Serialization converts chips back to reference labels while preserving a typed @ prefix.
+export function CanvasPromptChipInput({ value, references, onChange, onSubmit, prefixImageMentions = false, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -105,6 +106,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
         const editor = editorRef.current;
         if (!editor) return;
         removeActiveMention();
+        const prefix = reference.kind === "image" && prefixImageMentions ? document.createTextNode("@") : null;
         const chip = createReferenceChip(reference, theme, setImagePreview);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
@@ -112,12 +114,14 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
         if (range) {
             range.insertNode(space);
             range.insertNode(chip);
+            if (prefix) range.insertNode(prefix);
             range.setStartAfter(space);
             range.collapse(true);
             selection?.removeAllRanges();
             selection?.addRange(range);
         } else {
-            editor.append(chip, space);
+            if (prefix) editor.append(prefix, chip, space);
+            else editor.append(chip, space);
             placeCaretAtEnd(editor);
         }
         closeMention();

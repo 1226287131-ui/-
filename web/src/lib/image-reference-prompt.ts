@@ -12,3 +12,14 @@ export function buildImageReferencePromptText(prompt: string, references: Refere
     const labels = references.map((_, index) => imageReferenceLabel(index));
     return i18n.t("imageReferences.promptPrefix", { labels: labels.join(i18n.t("imageReferences.separator")), prompt: text });
 }
+
+export function ensureImageReferenceMentions(prompt: string, labels: string[]) {
+    return labels.reduce((text, label) => {
+        if (!label) return text;
+        return text.replace(new RegExp(`(?<!@)${escapeRegExp(label)}`, "g"), `@${label}`);
+    }, prompt);
+}
+
+function escapeRegExp(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

@@ -30,7 +30,8 @@ import { CanvasNodeCropDialog, type CanvasImageCropRect } from "@/components/can
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components/canvas/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
-import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
+import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, normalizeVideoImageReferenceMentions, type NodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
+import { ensureImageReferenceMentions } from "@/lib/image-reference-prompt";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
@@ -1594,7 +1595,10 @@ function InfiniteCanvasPage() {
             const sourceMetadata = currentSourceNode.metadata;
             const sourceReferences = buildNodeMentionReferences(currentSourceNode, currentNodes, currentConnections);
             const sourcePrompt = (sourceMetadata?.inputPrompt || sourceMetadata?.prompt || sourceMetadata?.composerContent || "").trim();
-            const prompt = sourcePrompt.replace(/@\[node:([^\]]+)\]/g, (token, nodeId: string) => sourceReferences.find((reference) => reference.nodeId === nodeId)?.label || token);
+            const prompt = ensureImageReferenceMentions(
+                sourcePrompt.replace(/@\[node:([^\]]+)\]/g, (token, nodeId: string) => sourceReferences.find((reference) => reference.nodeId === nodeId)?.label || token),
+                sourceReferences.filter((reference) => reference.kind === "image").map((reference) => reference.label),
+            );
             const newNode = createCanvasNode(
                 CanvasNodeType.Video,
                 {
@@ -2171,8 +2175,9 @@ function InfiniteCanvasPage() {
             const runController = startGenerationRequest(nodeId, nodeId, nodeId);
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
+            const inputPrompt = mode === "video" ? normalizeVideoImageReferenceMentions(prompt, buildNodeGenerationInputs(nodeId, nodesRef.current, connectionsRef.current)) : prompt;
             const generationContext = await hydrateNodeGenerationContext(
-                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt }) : prompt, {
+                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt: inputPrompt }) : inputPrompt, {
                     includeAllMediaReferences: mode === "video",
                     includeSourceMediaReference: mode === "video",
                 }),
@@ -2190,7 +2195,7 @@ function InfiniteCanvasPage() {
                 return;
             }
             let pendingChildIds: string[] = [];
-            if (markSourceStatus) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(node.type === CanvasNodeType.Config ? {} : { prompt }), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+            if (markSourceStatus) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(node.type === CanvasNodeType.Config ? {} : { prompt: inputPrompt }), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
 
             try {
                 if (mode === "image") {
@@ -2346,7 +2351,7 @@ function InfiniteCanvasPage() {
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoMetadataBase = {
                         prompt: effectivePrompt,
-                        inputPrompt: prompt.trim(),
+                        inputPrompt: inputPrompt.trim(),
                         status: NODE_STATUS_LOADING,
                         model: generationConfig.model,
                         size: generationConfig.size,
