@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { ensureReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { dataUrlToFile } from "@/lib/image-utils";
-import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3WorkflowId, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3ResolutionSize, isMiniMaxH3WorkflowId, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -369,13 +369,15 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
         if (videos.length || audios.length) throw new Error(`MiniMax-H3 的 ${workflowId} 工作流不能同时使用参考视频或参考音频`);
     }
     const workflowSize = workflowId.startsWith("cf-") ? normalizeMiniMaxH3WorkflowSize(config.videoWorkflowSize) : undefined;
+    const size = workflowSize || normalizeVideoSizeForModel(modelName, config.size);
     const payload: Record<string, unknown> = {
         model: modelName,
         prompt: prompt.trim(),
         workflow_id: workflowId,
         seconds: Number(normalizeVideoSecondsForModel(modelName, config.videoSeconds)),
-        size: workflowSize || normalizeVideoSizeForModel(modelName, config.size),
+        size,
     };
+    if (isMiniMaxH3ResolutionSize(size)) payload.aspect_ratio = normalizeMiniMaxH3AspectRatio(config.videoAspectRatio);
     if (images.length) payload.images = images.slice(0, profile.maxImages);
     if (videos.length) payload.reference_videos = videos.slice(0, profile.maxVideos);
     if (audios.length) payload.reference_audios = audios.slice(0, profile.maxAudios);

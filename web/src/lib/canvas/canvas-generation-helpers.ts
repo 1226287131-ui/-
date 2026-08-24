@@ -110,6 +110,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         vquality: mode === "video" ? videoSettings.quality : node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoWorkflow: node?.metadata?.videoWorkflow || config.videoWorkflow || defaultConfig.videoWorkflow,
         videoWorkflowSize: node?.metadata?.videoWorkflowSize || config.videoWorkflowSize || defaultConfig.videoWorkflowSize,
+        videoAspectRatio: node?.metadata?.videoAspectRatio || config.videoAspectRatio || defaultConfig.videoAspectRatio,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,

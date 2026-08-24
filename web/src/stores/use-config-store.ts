@@ -43,6 +43,7 @@ export type AiConfig = {
     vquality: string;
     videoWorkflow: string;
     videoWorkflowSize: string;
+    videoAspectRatio: string;
     videoGenerateAudio: string;
     videoWatermark: string;
     systemPrompt: string;
@@ -114,6 +115,7 @@ export const defaultConfig: AiConfig = {
     vquality: "720",
     videoWorkflow: "auto",
     videoWorkflowSize: "2K",
+    videoAspectRatio: "16:9",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
@@ -261,6 +263,7 @@ export const useConfigStore = create<ConfigStore>()(
                         vquality: config.vquality || "720",
                         videoWorkflow: config.videoWorkflow || "auto",
                         videoWorkflowSize: config.videoWorkflowSize === "4K" ? "4K" : "2K",
+                        videoAspectRatio: config.videoAspectRatio || "16:9",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         canvasImageCount: config.canvasImageCount || "3",

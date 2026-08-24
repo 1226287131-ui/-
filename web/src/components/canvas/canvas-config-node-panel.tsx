@@ -159,6 +159,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
         videoWorkflow: node.metadata?.videoWorkflow || globalConfig.videoWorkflow || defaultConfig.videoWorkflow,
         videoWorkflowSize: node.metadata?.videoWorkflowSize || globalConfig.videoWorkflowSize || defaultConfig.videoWorkflowSize,
+        videoAspectRatio: node.metadata?.videoAspectRatio || globalConfig.videoAspectRatio || defaultConfig.videoAspectRatio,
         videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
         audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,

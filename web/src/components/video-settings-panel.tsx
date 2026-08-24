@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, MINIMAX_H3_ASPECT_RATIOS, MINIMAX_H3_WORKFLOW_IDS, MINIMAX_H3_WORKFLOW_SIZES, getVideoModelProfile, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, isMiniMaxH3ResolutionSize, MINIMAX_H3_ASPECT_RATIOS, MINIMAX_H3_WORKFLOW_IDS, MINIMAX_H3_WORKFLOW_SIZES, getVideoModelProfile, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
@@ -33,7 +33,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 type VideoSettingsPanelProps = {
     config: AiConfig;
     model?: string;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoWorkflow" | "videoWorkflowSize", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoWorkflow" | "videoWorkflowSize" | "videoAspectRatio", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -187,7 +187,7 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
     const profile = getVideoModelProfile(model);
     const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
     const size = normalizeVideoSizeForModel(model, config.size);
-    const ratio = getMiniMaxH3AspectRatioForSize(size);
+    const ratio = isMiniMaxH3ResolutionSize(size) ? normalizeMiniMaxH3AspectRatio(config.videoAspectRatio) : getMiniMaxH3AspectRatioForSize(size);
     const sizes = getMiniMaxH3SizeOptionsForRatio(ratio);
     const workflow = normalizeMiniMaxH3WorkflowSelection(config.videoWorkflow);
     const workflowSize = normalizeMiniMaxH3WorkflowSize(config.videoWorkflowSize);
@@ -196,6 +196,7 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
         const currentSizes = getMiniMaxH3SizeOptionsForRatio(ratio);
         const nextSizes = getMiniMaxH3SizeOptionsForRatio(nextRatio);
         const currentIndex = Math.max(0, currentSizes.indexOf(size));
+        onConfigChange("videoAspectRatio", nextRatio);
         onConfigChange("size", nextSizes[Math.min(currentIndex, nextSizes.length - 1)] || nextSizes[nextSizes.length - 1]);
     };
 
@@ -219,7 +220,11 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
                         className="h-10 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
                         style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.node.fill }}
                         onMouseDown={(event) => event.stopPropagation()}
-                        onChange={(event) => onConfigChange("size", event.target.value)}
+                        onChange={(event) => {
+                            const nextSize = event.target.value;
+                            onConfigChange("size", nextSize);
+                            if (!isMiniMaxH3ResolutionSize(nextSize)) onConfigChange("videoAspectRatio", getMiniMaxH3AspectRatioForSize(nextSize));
+                        }}
                     >
                         {sizes.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>

@@ -122,6 +122,14 @@ export type MiniMaxH3WorkflowSelection = "auto" | MiniMaxH3WorkflowId;
 export type MiniMaxH3WorkflowSize = "2K" | "4K";
 export const MINIMAX_H3_WORKFLOW_SIZES = ["2K", "4K"] as const;
 
+export function isMiniMaxH3ResolutionSize(value: unknown): value is (typeof MINIMAX_H3_RESOLUTION_SIZES)[number] {
+    return typeof value === "string" && (MINIMAX_H3_RESOLUTION_SIZES as readonly string[]).includes(value);
+}
+
+export function normalizeMiniMaxH3AspectRatio(value: unknown): MiniMaxH3AspectRatio {
+    return typeof value === "string" && (MINIMAX_H3_ASPECT_RATIOS as readonly string[]).includes(value) ? value as MiniMaxH3AspectRatio : "16:9";
+}
+
 export function isMiniMaxH3WorkflowId(value: unknown): value is MiniMaxH3WorkflowId {
     return typeof value === "string" && (MINIMAX_H3_WORKFLOW_IDS as readonly string[]).includes(value);
 }
@@ -149,7 +157,7 @@ export function getMiniMaxH3SizeOptionsForRatio(ratio: string) {
 }
 
 export function getMiniMaxH3AspectRatioForSize(size: string) {
-    if ((MINIMAX_H3_RESOLUTION_SIZES as readonly string[]).includes(size)) return "16:9";
+    if (isMiniMaxH3ResolutionSize(size)) return "16:9";
     const match = MINIMAX_H3_ASPECT_RATIOS.find((ratio) => MINIMAX_H3_SIZES_BY_RATIO[ratio].includes(size));
     return match || "16:9";
 }
