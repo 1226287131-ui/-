@@ -110,17 +110,10 @@ export const MINIMAX_H3_ALL_SIZES = Array.from(new Set(MINIMAX_H3_ASPECT_RATIOS.
 export const MINIMAX_H3_WORKFLOW_IDS = [
     "text-to-video",
     "multi-reference",
-    "fl2v",
     "cf-multi-reference",
-    "cf-fl2v",
-    "mj",
-    "cf-mj",
 ] as const;
 
 export type MiniMaxH3WorkflowId = (typeof MINIMAX_H3_WORKFLOW_IDS)[number];
-export type MiniMaxH3WorkflowSelection = "auto" | MiniMaxH3WorkflowId;
-export type MiniMaxH3WorkflowSize = "2K" | "4K";
-export const MINIMAX_H3_WORKFLOW_SIZES = ["2K", "4K"] as const;
 
 export function isMiniMaxH3ResolutionSize(value: unknown): value is (typeof MINIMAX_H3_RESOLUTION_SIZES)[number] {
     return typeof value === "string" && (MINIMAX_H3_RESOLUTION_SIZES as readonly string[]).includes(value);
@@ -130,25 +123,9 @@ export function normalizeMiniMaxH3AspectRatio(value: unknown): MiniMaxH3AspectRa
     return typeof value === "string" && (MINIMAX_H3_ASPECT_RATIOS as readonly string[]).includes(value) ? value as MiniMaxH3AspectRatio : "16:9";
 }
 
-export function isMiniMaxH3WorkflowId(value: unknown): value is MiniMaxH3WorkflowId {
-    return typeof value === "string" && (MINIMAX_H3_WORKFLOW_IDS as readonly string[]).includes(value);
-}
-
-export function isMiniMaxH3WorkflowSize(value: unknown): value is MiniMaxH3WorkflowSize {
-    return value === "2K" || value === "4K";
-}
-
-export function normalizeMiniMaxH3WorkflowSelection(value: unknown): MiniMaxH3WorkflowSelection {
-    return value === "auto" || isMiniMaxH3WorkflowId(value) ? value : "auto";
-}
-
-export function normalizeMiniMaxH3WorkflowSize(value: unknown): MiniMaxH3WorkflowSize {
-    return isMiniMaxH3WorkflowSize(value) ? value : "2K";
-}
-
-export function inferMiniMaxH3WorkflowId(input: { images: number; videos: number; audios: number; firstLastFrame?: boolean }): MiniMaxH3WorkflowId {
-    if (input.firstLastFrame) return "fl2v";
-    return input.images + input.videos + input.audios > 0 ? "multi-reference" : "text-to-video";
+export function inferMiniMaxH3WorkflowId(input: { images: number; size: string }): MiniMaxH3WorkflowId {
+    if (!input.images) return "text-to-video";
+    return isMiniMaxH3ResolutionSize(input.size) ? "cf-multi-reference" : "multi-reference";
 }
 
 export function getMiniMaxH3SizeOptionsForRatio(ratio: string) {

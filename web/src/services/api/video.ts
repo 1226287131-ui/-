@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { ensureReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { dataUrlToFile } from "@/lib/image-utils";
-import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3ResolutionSize, isMiniMaxH3WorkflowId, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3ResolutionSize, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile, type UploadMediaOptions } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -354,23 +354,10 @@ async function createMiniMaxH3Task(config: AiConfig, model: string, prompt: stri
     const images = uniqueMiniMaxMediaUrls(media.images);
     const videos = uniqueMiniMaxMediaUrls(media.videos);
     const audios = uniqueMiniMaxMediaUrls(media.audios);
-    const workflowSelection = normalizeMiniMaxH3WorkflowSelection(config.videoWorkflow);
-    const workflowId = workflowSelection === "auto"
-        ? inferMiniMaxH3WorkflowId({ images: images.length, videos: videos.length, audios: audios.length })
-        : workflowSelection;
-    if (!isMiniMaxH3WorkflowId(workflowId)) throw new Error("MiniMax-H3 的 workflow_id 无效");
-    if (workflowId === "text-to-video" && (images.length || videos.length || audios.length)) {
-        throw new Error("MiniMax-H3 的 text-to-video 工作流不能携带参考素材");
-    }
-    if (workflowId === "multi-reference" || workflowId === "cf-multi-reference") {
-        if (!images.length) throw new Error(`MiniMax-H3 的 ${workflowId} 工作流至少需要 1 张参考图`);
-    }
-    if (workflowId === "fl2v" || workflowId === "cf-fl2v") {
-        if (images.length < 1 || images.length > 2) throw new Error(`MiniMax-H3 的 ${workflowId} 工作流需要 1-2 张参考图`);
-        if (videos.length || audios.length) throw new Error(`MiniMax-H3 的 ${workflowId} 工作流不能同时使用参考视频或参考音频`);
-    }
-    const workflowSize = workflowId.startsWith("cf-") ? normalizeMiniMaxH3WorkflowSize(config.videoWorkflowSize) : undefined;
-    const size = workflowSize || normalizeVideoSizeForModel(modelName, config.size);
+    const size = normalizeVideoSizeForModel(modelName, config.size);
+    if (isMiniMaxH3ResolutionSize(size) && !images.length) throw new Error("MiniMax-H3 的 2K/4K 生成至少需要 1 张参考图");
+    if (!images.length && (videos.length || audios.length)) throw new Error("MiniMax-H3 的参考视频或参考音频必须同时携带至少 1 张参考图");
+    const workflowId = inferMiniMaxH3WorkflowId({ images: images.length, size });
     const payload: Record<string, unknown> = {
         model: modelName,
         prompt: prompt.trim(),

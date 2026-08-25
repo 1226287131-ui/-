@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, isMiniMaxH3ResolutionSize, MINIMAX_H3_ASPECT_RATIOS, MINIMAX_H3_WORKFLOW_IDS, MINIMAX_H3_WORKFLOW_SIZES, getVideoModelProfile, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, isMiniMaxH3ResolutionSize, MINIMAX_H3_ASPECT_RATIOS, getVideoModelProfile, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
@@ -33,7 +33,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 type VideoSettingsPanelProps = {
     config: AiConfig;
     model?: string;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoWorkflow" | "videoWorkflowSize" | "videoAspectRatio", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoAspectRatio", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -189,8 +189,6 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
     const size = normalizeVideoSizeForModel(model, config.size);
     const ratio = isMiniMaxH3ResolutionSize(size) ? normalizeMiniMaxH3AspectRatio(config.videoAspectRatio) : getMiniMaxH3AspectRatioForSize(size);
     const sizes = getMiniMaxH3SizeOptionsForRatio(ratio);
-    const workflow = normalizeMiniMaxH3WorkflowSelection(config.videoWorkflow);
-    const workflowSize = normalizeMiniMaxH3WorkflowSize(config.videoWorkflowSize);
 
     const updateRatio = (nextRatio: string) => {
         const currentSizes = getMiniMaxH3SizeOptionsForRatio(ratio);
@@ -230,32 +228,6 @@ function MiniMaxH3VideoSettingsPanel({ config, model, onConfigChange, theme, sho
                     </select>
                     <div className="text-[11px] leading-4 opacity-55">{ratio} 共 {sizes.length} 档：480P、768P、1080P、2K、4K。</div>
                 </SettingGroup>
-                <SettingGroup title={t("settingsPanels.video.workflow")} color={theme.node.muted}>
-                    <select
-                        value={workflow}
-                        aria-label={t("settingsPanels.video.workflow")}
-                        className="h-10 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
-                        style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.node.fill }}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onChange={(event) => onConfigChange("videoWorkflow", event.target.value)}
-                    >
-                        <option value="auto">{t("settingsPanels.video.workflows.auto")}</option>
-                        {MINIMAX_H3_WORKFLOW_IDS.map((item) => <option key={item} value={item}>{t(`settingsPanels.video.workflows.${item}`)}</option>)}
-                    </select>
-                    <div className="text-[11px] leading-4 opacity-55">{t("settingsPanels.video.workflowHint")}</div>
-                </SettingGroup>
-                {workflow.startsWith("cf-") ? (
-                    <SettingGroup title={t("settingsPanels.video.workflowSize")} color={theme.node.muted}>
-                        <div className="grid grid-cols-2 gap-2.5">
-                            {MINIMAX_H3_WORKFLOW_SIZES.map((item) => (
-                                <OptionPill key={item} selected={workflowSize === item} theme={theme} onClick={() => onConfigChange("videoWorkflowSize", item)}>
-                                    {item}
-                                </OptionPill>
-                            ))}
-                        </div>
-                        <div className="text-[11px] leading-4 opacity-55">{t("settingsPanels.video.workflowSizeHint")}</div>
-                    </SettingGroup>
-                ) : null}
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {profile.seconds.map((value) => (
