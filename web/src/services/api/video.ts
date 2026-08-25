@@ -6,7 +6,7 @@ import { ensureReferenceMentions, imageReferenceLabel } from "@/lib/image-refere
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3ResolutionSize, isMiniMaxH3WorkflowId, normalizeMiniMaxH3AspectRatio, normalizeMiniMaxH3WorkflowSelection, normalizeMiniMaxH3WorkflowSize, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
-import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
+import { getMediaBlob, uploadMediaFile, type UploadedFile, type UploadMediaOptions } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { resolveReferenceMediaUrls } from "@/services/api/video-media";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceReferenceLabel, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -179,10 +179,11 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
     throw new Error(apiText("scriptNoVideo"));
 }
 
-export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
-    if (result.blob) return uploadMediaFile(result.blob, "video");
+export async function storeGeneratedVideo(result: VideoGenerationResult, options?: UploadMediaOptions): Promise<UploadedFile> {
+    if (result.blob) return uploadMediaFile(result.blob, "video", options);
     if (result.url) {
         if (result.remoteOnly) return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
+        if (options?.deferPersistence) return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
         try {
             return await uploadMediaFile(result.url, "video");
         } catch {
@@ -722,6 +723,10 @@ async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
 }
 
 async function videoResultFromUrl(config: AiConfig, url: string, options?: RequestOptions, retryNotFound = false): Promise<VideoGenerationResult> {
+    if (isPublicMediaUrl(url) && !sameOriginAsBaseUrl(url, config.baseUrl)) {
+        // 跨域 CDN 可能禁止 HEAD 或不支持浏览器读取响应；直接交给 video 元素加载，避免下载整段大文件阻塞画布。
+        return { url, mimeType: "video/mp4", remoteOnly: true };
+    }
     try {
         const response = await axios.get<Blob>(url, { headers: videoResultHeaders(config, url), responseType: "blob", timeout: VIDEO_DOWNLOAD_TIMEOUT_MS, signal: options?.signal });
         await assertVideoBlob(response.data);

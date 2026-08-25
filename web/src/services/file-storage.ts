@@ -2,6 +2,7 @@ import localforage from "localforage";
 import { nanoid } from "nanoid";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
+export type UploadMediaOptions = { deferPersistence?: boolean; deferMetadata?: boolean };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
@@ -9,21 +10,30 @@ const MEDIA_FETCH_TIMEOUT_MS = 120_000;
 const MEDIA_METADATA_TIMEOUT_MS = 15_000;
 const MEDIA_STORAGE_TIMEOUT_MS = 30_000;
 
-export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
+export async function uploadMediaFile(input: string | Blob, prefix = "file", options?: UploadMediaOptions): Promise<UploadedFile> {
     const blob = typeof input === "string" ? await (await fetchWithTimeout(input)).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
-    let persistedStorageKey = "";
-    try {
-        await withTimeout(store.setItem(storageKey, blob), MEDIA_STORAGE_TIMEOUT_MS);
-        persistedStorageKey = storageKey;
-    } catch {
-        // IndexedDB failure must not block the current canvas result; keep the object URL usable for this session.
-    }
     const url = URL.createObjectURL(blob);
-    if (persistedStorageKey) objectUrls.set(persistedStorageKey, url);
+    let persisted = false;
+    const persist = async () => {
+        try {
+            await withTimeout(store.setItem(storageKey, blob), MEDIA_STORAGE_TIMEOUT_MS);
+            return true;
+        } catch {
+            // IndexedDB failure must not block the current canvas result; keep the object URL usable for this session.
+            return false;
+        }
+    };
+    if (options?.deferPersistence) {
+        objectUrls.set(storageKey, url);
+        void persist();
+    } else {
+        persisted = await persist();
+        if (persisted) objectUrls.set(storageKey, url);
+    }
     const mimeType = blob.type || (prefix.startsWith("video") ? "video/mp4" : prefix.startsWith("audio") ? "audio/mpeg" : "application/octet-stream");
-    const meta = mimeType.startsWith("video/") ? await readVideoMeta(url) : mimeType.startsWith("audio/") ? await readAudioMeta(url) : {};
-    return { url, storageKey: persistedStorageKey, bytes: blob.size, mimeType, ...meta };
+    const meta = options?.deferMetadata ? {} : mimeType.startsWith("video/") ? await readVideoMeta(url) : mimeType.startsWith("audio/") ? await readAudioMeta(url) : {};
+    return { url, storageKey: options?.deferPersistence || persisted ? storageKey : "", bytes: blob.size, mimeType, ...meta };
 }
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {

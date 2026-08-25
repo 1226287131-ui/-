@@ -2404,6 +2404,7 @@ function InfiniteCanvasPage() {
                             try {
                                 const video = await storeGeneratedVideo(
                                     await requestVideoGeneration({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, referenceVideos, referenceAudios, { signal: controller.signal }),
+                                    { deferPersistence: true, deferMetadata: true },
                                 );
                                 const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                                 setNodes((prev) =>
@@ -2637,7 +2638,7 @@ function InfiniteCanvasPage() {
                         referenceVideos: context?.referenceVideos || [],
                         referenceAudios: context?.referenceAudios || [],
                     });
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, resolvedReferences.referenceImages, resolvedReferences.referenceVideos, resolvedReferences.referenceAudios, { signal: controller.signal }));
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, resolvedReferences.referenceImages, resolvedReferences.referenceVideos, resolvedReferences.referenceAudios, { signal: controller.signal }), { deferPersistence: true, deferMetadata: true });
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>
