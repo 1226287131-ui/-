@@ -3,9 +3,9 @@ import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
-import { VideoSettingsPanel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
+import { VideoSettingsPanel, videoAspectRatioLabel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { getVideoModelProfile, normalizeVideoQualityForReferences, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getMiniMaxH3AspectRatioForSize, isMiniMaxH3ResolutionSize, getVideoModelProfile, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -28,6 +28,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
     const isVideoV3 = profile.kind === "video-v3";
     const seconds = isVideoV2Full ? "15" : profile.kind === "generic" ? config.videoSeconds : normalizeVideoSecondsForModel(model, config.videoSeconds);
     const size = profile.kind === "generic" ? config.size : normalizeVideoSizeForModel(model, config.size);
+    const miniMaxH3Ratio = isMiniMaxH3ResolutionSize(size) ? normalizeMiniMaxH3AspectRatio(config.videoAspectRatio) : getMiniMaxH3AspectRatioForSize(size);
     const quality = isVideoV2Full ? "720p" : profile.kind === "generic" ? config.vquality : normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
     const count = normalizeVideoBatchCount(config.count);
     const buttonRef = useRef<HTMLSpanElement>(null);
@@ -65,7 +66,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
                         {isMiniMaxH3
-                            ? `${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`
+                            ? `${videoAspectRatioLabel(miniMaxH3Ratio)} · ${videoSecondsLabel(seconds)} · ${count} 条`
                             : isVideoV3
                               ? `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`
                               : `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`}

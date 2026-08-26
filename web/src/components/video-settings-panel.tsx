@@ -24,7 +24,7 @@ const sizeOptions = [
 ];
 
 const secondOptions = [6, 10, 12, 16, 20];
-const seedanceRatioLabelKeys: Record<string, string> = { "16:9": "landscape", "9:16": "portrait", "1:1": "square", "4:3": "standardLandscape", "3:4": "standardPortrait", "21:9": "cinematic", adaptive: "adaptive" };
+const seedanceRatioLabelKeys: Record<string, string> = { "16:9": "landscape", "9:16": "portrait", "1:1": "square", "2:3": "portrait", "3:2": "landscape", "4:3": "standardLandscape", "3:4": "standardPortrait", "21:9": "cinematic", adaptive: "adaptive" };
 
 export const videoResolutionOptions = resolutionOptions.map((item) => ({ value: item.value, label: item.label }));
 export const videoSizeOptions = sizeOptions.map((item) => ({ value: item.value, get label() { return i18n.t(`settingsPanels.video.sizes.${item.labelKey}`); } }));
@@ -309,6 +309,12 @@ export function videoSizeLabel(value: string) {
     const size = normalizeVideoSizeValue(value);
     const option = sizeOptions.find((item) => item.value === size);
     return option ? i18n.t(`settingsPanels.video.sizes.${option.labelKey}`) : size;
+}
+
+export function videoAspectRatioLabel(value: string) {
+    const ratio = String(value || "").trim();
+    const labelKey = seedanceRatioLabelKeys[ratio];
+    return labelKey ? i18n.t(`settingsPanels.video.ratios.${labelKey}`) : ratio;
 }
 
 export function videoSecondsLabel(value: string) {
