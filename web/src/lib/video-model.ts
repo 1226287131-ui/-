@@ -34,7 +34,7 @@ const VIDEO_V1_PROFILE: VideoModelProfile = {
 
 const VIDEO_V2_PROFILE: VideoModelProfile = {
     kind: "video-v2",
-    seconds: [5, 10, 15],
+    seconds: Array.from({ length: 11 }, (_, index) => index + 5),
     ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     maxImages: 9,
     maxVideos: 3,
