@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { fetchChannelModels } from "@/services/api/image";
 import type { ModelChannel } from "@/stores/use-config-store";
 
-// Channel model selector: fetch upstream models or add them manually, then include checked models in the channel list.
+// Channel model selector: fetch upstream models, then include checked models in the channel list.
 export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onClose }: { open: boolean; channel: ModelChannel | null; selectedNames: string[]; onConfirm: (names: string[]) => void; onClose: () => void }) {
     const { message } = App.useApp();
     const { t } = useTranslation();
@@ -15,7 +15,6 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [activeTab, setActiveTab] = useState("new");
     const [search, setSearch] = useState("");
-    const [manual, setManual] = useState("");
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -25,7 +24,6 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
         setSelected(new Set(selectedNames));
         setActiveTab(selectedNames.length ? "existing" : "new");
         setSearch("");
-        setManual("");
     }, [open, selectedNames]);
 
     const currentList = activeTab === "new" ? fetched : existing;
@@ -49,15 +47,6 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
             visibleList.forEach((name) => (checked ? next.add(name) : next.delete(name)));
             return next;
         });
-
-    const addManual = () => {
-        const name = manual.trim();
-        if (!name) return;
-        if (!fetched.includes(name) && !existing.includes(name)) setFetched((current) => [name, ...current]);
-        setSelected((current) => new Set(current).add(name));
-        setManual("");
-        setActiveTab("new");
-    };
 
     const fetchModels = async () => {
         if (!channel) return;
@@ -107,8 +96,6 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
         >
             <div className="flex flex-wrap items-center gap-3">
                 <Input className="min-w-[200px] flex-1" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("config.modelSelect.search")} prefix={<Search className="size-4 text-stone-400" />} allowClear />
-                <Input className="min-w-[180px] flex-1" value={manual} onChange={(event) => setManual(event.target.value)} onPressEnter={addManual} placeholder={t("config.modelSelect.modelName")} />
-                <Button onClick={addManual}>{t("config.modelSelect.add")}</Button>
                 <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void fetchModels()}>
                     {t("config.modelSelect.fetch")}
                 </Button>

@@ -367,6 +367,7 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
     };
     return {
         ...next,
+        model: normalizeModelOptionValue(config.model, next.channels),
         imageModel: pickDefaultModel(next, "image", config.imageModel),
         videoModel: pickDefaultModel(next, "video", config.videoModel),
         textModel: pickDefaultModel(next, "text", config.textModel),
