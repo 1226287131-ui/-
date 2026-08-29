@@ -1582,7 +1582,7 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleNodePromptChange = useCallback((nodeId: string, prompt: string) => {
-        setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, prompt, ...(node.type === CanvasNodeType.Video ? { inputPrompt: prompt } : {}) } } : node)));
+        setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, prompt, inputPrompt: prompt } } : node)));
     }, []);
 
     const createVideoNodeFromExisting = useCallback(
@@ -1594,7 +1594,7 @@ function InfiniteCanvasPage() {
             const currentSourceNode = currentNodes.find((node) => node.id === sourceNode.id) || sourceNode;
             const sourceMetadata = currentSourceNode.metadata;
             const sourceReferences = buildNodeMentionReferences(currentSourceNode, currentNodes, currentConnections);
-            const sourcePrompt = (sourceMetadata?.prompt || sourceMetadata?.inputPrompt || sourceMetadata?.composerContent || "").trim();
+            const sourcePrompt = (sourceMetadata?.inputPrompt || sourceMetadata?.prompt || sourceMetadata?.composerContent || "").trim();
             const prompt = ensureReferenceMentions(
                 sourcePrompt.replace(/@\[node:([^\]]+)\]/g, (token, nodeId: string) => sourceReferences.find((reference) => reference.nodeId === nodeId)?.label || token),
                 sourceReferences.filter((reference) => reference.kind !== "text").map((reference) => reference.label),
@@ -2176,7 +2176,7 @@ function InfiniteCanvasPage() {
             const runController = startGenerationRequest(nodeId, nodeId, nodeId);
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
-            const inputPrompt = mode === "video" ? normalizeVideoReferenceMentions(prompt, buildNodeGenerationInputs(nodeId, nodesRef.current, connectionsRef.current)) : prompt;
+            const inputPrompt = (mode === "video" ? normalizeVideoReferenceMentions(prompt, buildNodeGenerationInputs(nodeId, nodesRef.current, connectionsRef.current)) : prompt).trim();
             const generationContext = await hydrateNodeGenerationContext(
                 buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt: inputPrompt }) : inputPrompt, {
                     includeAllMediaReferences: mode === "video",
@@ -2196,7 +2196,7 @@ function InfiniteCanvasPage() {
                 return;
             }
             let pendingChildIds: string[] = [];
-            if (markSourceStatus) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(node.type === CanvasNodeType.Config ? {} : { prompt: inputPrompt }), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+            if (markSourceStatus) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(node.type === CanvasNodeType.Config ? {} : { prompt: inputPrompt, inputPrompt }), status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
 
             try {
                 if (mode === "image") {
@@ -2229,6 +2229,7 @@ function InfiniteCanvasPage() {
                         height: isEmptyImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
                         metadata: {
                             prompt: effectivePrompt,
+                            inputPrompt,
                             status: NODE_STATUS_LOADING,
                             images: imageIds.map((id) => ({ id, status: NODE_STATUS_LOADING, content: "", storageKey: "", naturalWidth: 0, naturalHeight: 0, bytes: 0, mimeType: "" })),
                             ...generationMetadata,
@@ -2352,7 +2353,7 @@ function InfiniteCanvasPage() {
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoMetadataBase = {
                         prompt: effectivePrompt,
-                        inputPrompt: effectivePrompt,
+                        inputPrompt,
                         status: NODE_STATUS_LOADING,
                         model: generationConfig.model,
                         size: generationConfig.size,
@@ -2456,7 +2457,7 @@ function InfiniteCanvasPage() {
                         position: isEmptyAudioNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
                         width: isEmptyAudioNode ? sourceNode.width : spec.width,
                         height: isEmptyAudioNode ? sourceNode.height : spec.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig) },
+                        metadata: { prompt: effectivePrompt, inputPrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig) },
                     };
                     pendingChildIds = [audioId];
                     setNodes((prev) =>
@@ -2468,7 +2469,7 @@ function InfiniteCanvasPage() {
                     const controller = startGenerationRequest(audioId, nodeId, nodeId, runController);
                     try {
                         const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal }), generationConfig.audioFormat);
-                        setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig) } } : node)));
+                        setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, inputPrompt, ...buildAudioGenerationMetadata(generationConfig) } } : node)));
                     } finally {
                         finishGenerationRequest(audioId, controller);
                     }
@@ -2494,7 +2495,7 @@ function InfiniteCanvasPage() {
                         },
                         width: textConfig.width,
                         height: textConfig.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, fontSize: 14, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort },
+                        metadata: { prompt: effectivePrompt, inputPrompt, status: NODE_STATUS_LOADING, fontSize: 14, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort },
                     }));
                     setNodes((prev) => [...prev.map((node) => (node.id === nodeId && isConfigNode ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), ...childNodes]);
                     setConnections((prev) => [...prev, ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId: childId }))]);
@@ -2585,9 +2586,7 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            const retryPrompt = node.type === CanvasNodeType.Video
-                ? node.metadata?.prompt || sourceNode.metadata?.prompt || node.metadata?.inputPrompt || sourceNode.metadata?.inputPrompt || ""
-                : sourceNode.metadata?.prompt || node.metadata?.prompt || "";
+            const retryPrompt = node.metadata?.inputPrompt || sourceNode.metadata?.inputPrompt || node.metadata?.prompt || sourceNode.metadata?.prompt || "";
             const context = hasSavedImageMetadata
                 ? null
                 : await hydrateNodeGenerationContext(
@@ -2596,7 +2595,7 @@ function InfiniteCanvasPage() {
                           includeSourceMediaReference: node.type === CanvasNodeType.Video,
                       }),
                   );
-            const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
+            const prompt = (savedImageMetadata?.inputPrompt || savedImageMetadata?.prompt || context?.prompt || retryPrompt).trim();
             if (!prompt) {
                 message.warning(t("canvas.projectPage.retryPromptMissing"));
                 return;
@@ -2652,7 +2651,7 @@ function InfiniteCanvasPage() {
                                           ...item.metadata,
                                           ...videoMetadata(video),
                                           prompt,
-                                          inputPrompt: prompt,
+                                          inputPrompt: retryPrompt.trim(),
                                           model: generationConfig.model,
                                           size: generationConfig.size,
                                           seconds: generationConfig.videoSeconds,

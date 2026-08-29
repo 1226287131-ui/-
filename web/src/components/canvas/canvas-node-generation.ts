@@ -50,10 +50,10 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const referenceAudios = inputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
     const normalizedPrompt = (options.includeAllMediaReferences ? normalizeVideoReferenceMentions(prompt, inputs) : prompt).trim();
     const normalizedUpstreamText = upstreamText.trim();
-    const hasAppendedUpstreamText = Boolean(normalizedUpstreamText) && (normalizedPrompt === normalizedUpstreamText || normalizedPrompt.endsWith(`\n\n${normalizedUpstreamText}`));
+    const mergedPrompt = mergeTrailingContent(normalizedPrompt, normalizedUpstreamText);
 
     return {
-        prompt: upstreamText && !hasAppendedUpstreamText ? `${normalizedPrompt}\n\n${upstreamText}` : normalizedPrompt,
+        prompt: mergedPrompt,
         referenceImages,
         referenceVideos,
         referenceAudios,
@@ -95,7 +95,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     }
 
     nextPrompt += prompt.slice(lastIndex);
-    if (textBlocks.length) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
+    if (textBlocks.length) nextPrompt = mergeTrailingContent(nextPrompt, textBlocks.join("\n\n"));
     const referenceInputs = options.includeAllMediaReferences ? inputs.filter((input) => input.type !== "text") : selectedInputs;
     const referenceImages = referenceInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = referenceInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
@@ -167,6 +167,16 @@ export function buildNodeResponseMessages(context: NodeGenerationContext): AiTex
 export async function hydrateNodeGenerationContext(context: NodeGenerationContext) {
     const { imageToDataUrl } = await import("@/services/image-storage");
     return { ...context, referenceImages: await Promise.all(context.referenceImages.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) }))) };
+}
+
+function mergeTrailingContent(prompt: string, appendedContent: string) {
+    const normalizedPrompt = prompt.trim();
+    const normalizedContent = appendedContent.trim();
+    if (!normalizedContent || normalizedPrompt === normalizedContent) return normalizedPrompt || normalizedContent;
+
+    const escapedContent = normalizedContent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    const basePrompt = normalizedPrompt.replace(new RegExp(`(?:\\s*${escapedContent})+$`), "").trim();
+    return basePrompt ? `${basePrompt}\n\n${normalizedContent}` : normalizedContent;
 }
 
 function readNodeTextInput(node: CanvasNodeData) {

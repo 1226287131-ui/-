@@ -177,7 +177,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 }
 
 function readNodePrompt(node: CanvasNodeData, mentionReferences: CanvasResourceReference[]) {
-    const prompt = node.type === CanvasNodeType.Video ? node.metadata?.prompt ?? node.metadata?.inputPrompt ?? "" : node.metadata?.composerContent ?? node.metadata?.prompt ?? "";
+    const prompt = node.type === CanvasNodeType.Video
+        ? node.metadata?.inputPrompt ?? node.metadata?.prompt ?? ""
+        : node.metadata?.composerContent ?? node.metadata?.inputPrompt ?? node.metadata?.prompt ?? "";
     return node.type === CanvasNodeType.Video ? ensureReferenceMentions(prompt, mediaReferenceLabels(mentionReferences)) : prompt;
 }
 
