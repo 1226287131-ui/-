@@ -71,17 +71,15 @@ const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 const MINIMAX_BASE_URL = "https://api.kkone.vip";
-const LEGACY_BUILT_IN_MODEL_NAMES = new Set([
+const LEGACY_DEFAULT_MODEL_NAMES = new Set([
     "gpt-image-2",
     "video-v1",
     "grok-imagine-1.5-video",
     "video-v2",
     "video-v2-fast",
     "video-v2-满血兜底版",
-    "v2-满血兜底版",
     "video-v3",
     "minimax-h3",
-    "minimax-h3-1440p",
     "minimax-h3-933-1440p-gf",
     "gpt-5.5",
     "gpt-4o-mini-tts",
@@ -214,7 +212,7 @@ export const useConfigStore = create<ConfigStore>()(
             shouldPromptContinue: false,
             updateConfig: (key, value) =>
                 set((state) => {
-                    if (key === "channels") return { config: normalizeAiConfig({ ...state.config, channels: value as ModelChannel[] }, false) };
+                    if (key === "channels") return { config: normalizeAiConfig({ ...state.config, channels: value as ModelChannel[] }) };
                     if (MODEL_CONFIG_KEYS.has(key)) return { config: { ...state.config, [key]: normalizeModelOptionValue(value as string, state.config.channels) } };
                     return { config: { ...state.config, [key]: value } };
                 }),
@@ -321,10 +319,10 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
     return channel && channel.models.some((item) => item.name === model) ? encodeChannelModel(channel.id, model) : "";
 }
 
-export function normalizeAiConfig(input: Partial<AiConfig>, stripLegacyBuiltIns = true): AiConfig {
+export function normalizeAiConfig(input: Partial<AiConfig>): AiConfig {
     const source: AiConfig = { ...defaultConfig, ...input };
     if (!Array.isArray(input.channels)) source.channels = [];
-    const channels = stripLegacyBuiltIns ? removeLegacyBuiltInModels(normalizeChannels(source)) : normalizeChannels(source);
+    const channels = removeLegacyDefaultModels(normalizeChannels(source));
     return {
         ...source,
         channelMode: "local",
@@ -400,11 +398,13 @@ function normalizeChannels(config: AiConfig) {
     return channels;
 }
 
-function removeLegacyBuiltInModels(channels: ModelChannel[]) {
-    return channels.map((channel) => ({
-        ...channel,
-        models: channel.models.filter((model) => !LEGACY_BUILT_IN_MODEL_NAMES.has(model.name.trim().toLowerCase())),
-    }));
+function removeLegacyDefaultModels(channels: ModelChannel[]) {
+    return channels.map((channel) => {
+        const names = new Set(channel.models.map((model) => model.name.trim().toLowerCase()));
+        if (!Array.from(LEGACY_DEFAULT_MODEL_NAMES).every((name) => names.has(name))) return channel;
+        // A model name can be returned by a user-configured channel. Only remove the complete old default bundle.
+        return { ...channel, models: channel.models.filter((model) => !LEGACY_DEFAULT_MODEL_NAMES.has(model.name.trim().toLowerCase())) };
+    });
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
