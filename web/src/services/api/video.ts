@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { ensureReferenceMentions, imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { dataUrlToFile } from "@/lib/image-utils";
-import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3ResolutionSize, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, inferMiniMaxH3WorkflowId, isMiniMaxH3ResolutionSize, isVideoV2ModelKind, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoQualityForModel, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { compileVideoV1Prompt, normalizeVideoV2Prompt } from "@/lib/video-reference-prompt";
 import { getMediaBlob, uploadMediaFile, type UploadedFile, type UploadMediaOptions } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -92,7 +92,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const profile = getVideoModelProfile(modelOptionName(selectedModel));
     if (profile.kind === "video-v1") return createVideoV1Task(requestConfig, selectedModel, normalizedPrompt, references, options);
     if (profile.kind === "video-v2-full") return createVideoV2FullTask(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
-    if (profile.kind === "video-v2") return createVideoV2Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
+    if (isVideoV2ModelKind(profile.kind)) return createVideoV2Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "video-v3") return createVideoV3Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "grok") return createGrokTask(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);
     if (profile.kind === "minimax-h3") return createMiniMaxH3Task(requestConfig, selectedModel, normalizedPrompt, references, videoReferences, audioReferences, options);

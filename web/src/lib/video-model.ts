@@ -1,4 +1,4 @@
-export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-full" | "video-v3" | "grok" | "minimax-h3" | "generic";
+export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-fast" | "video-v2-full" | "video-v3" | "grok" | "minimax-h3" | "generic";
 
 export type VideoModelProfile = {
     kind: VideoModelKind;
@@ -89,6 +89,11 @@ const GROK_PROFILE: VideoModelProfile = {
     qualityOptions: ["480p", "720p", "1080p"],
 };
 
+const VIDEO_V2_FAST_PROFILE: VideoModelProfile = {
+    ...VIDEO_V2_PROFILE,
+    kind: "video-v2-fast",
+};
+
 export const MINIMAX_H3_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"] as const;
 
 export type MiniMaxH3AspectRatio = (typeof MINIMAX_H3_ASPECT_RATIOS)[number];
@@ -175,11 +180,16 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     const value = separator >= 0 ? raw.slice(separator + 2) : raw;
     if (value.includes("video-v1")) return VIDEO_V1_PROFILE;
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
+    if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (["video-v3", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;
     return GENERIC_PROFILE;
+}
+
+export function isVideoV2ModelKind(kind: VideoModelKind) {
+    return kind === "video-v2" || kind === "video-v2-fast";
 }
 
 export function normalizeVideoSecondsForModel(model: string, value: string | number) {
@@ -248,7 +258,7 @@ export function normalizeVideoQualityForModel(model: string, value: string) {
         const normalized = raw.replace(/p$/, "");
         return normalized === "720" ? "720p" : "480p";
     }
-    if (profile.kind === "video-v2" || profile.kind === "grok") {
+    if (isVideoV2ModelKind(profile.kind) || profile.kind === "grok") {
         const normalized = String(value || "")
             .trim()
             .toLowerCase()
@@ -282,5 +292,5 @@ export function videoModelSupports(model: string, kind: "image" | "video" | "aud
 
 export function videoModelUsesPublicMediaUrls(model: string) {
     const kind = getVideoModelProfile(model).kind;
-    return kind === "video-v1" || kind === "video-v2" || kind === "video-v2-full" || kind === "video-v3" || kind === "minimax-h3";
+    return kind === "video-v1" || isVideoV2ModelKind(kind) || kind === "video-v2-full" || kind === "video-v3" || kind === "minimax-h3";
 }

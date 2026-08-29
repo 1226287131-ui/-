@@ -5,7 +5,7 @@ import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
 import { imageAspectOptions, imageQualityOptions } from "@/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/components/video-settings-panel";
-import { getVideoModelProfile, MINIMAX_H3_ASPECT_RATIOS, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getVideoModelProfile, isVideoV2ModelKind, MINIMAX_H3_ASPECT_RATIOS, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -197,7 +197,7 @@ function getVideoConfig() {
     const resolutionOptions =
         profile.kind === "video-v1" || profile.kind === "video-v2-full" || profile.kind === "video-v3"
             ? [{ value: "720p", label: "720p" }]
-            : profile.kind === "video-v2" || profile.kind === "grok"
+            : isVideoV2ModelKind(profile.kind) || profile.kind === "grok"
               ? profile.qualityOptions.map((value) => ({ value, label: value }))
               : profile.kind === "minimax-h3"
                 ? []
