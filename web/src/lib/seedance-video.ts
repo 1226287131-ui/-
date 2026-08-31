@@ -66,7 +66,7 @@ export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" 
 
 function isCustomVideoModel(model: string) {
     const value = model.trim().toLowerCase();
-    return ["video-v1", "video-v2", "video-v2-fast", "video-v2-满血兜底版", "video-v3", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5", "minimax-h3", "minimax-h3-933-1440p-gf"].includes(value) || (value.includes("grok-imagine") && value.includes("video"));
+    return ["video-v1", "video-v2", "video-v2-fast", "video-v2-满血兜底版", "video-v3", "wan-3.0", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5", "minimax-h3", "minimax-h3-933-1440p-gf"].includes(value) || (value.includes("grok-imagine") && value.includes("video"));
 }
 
 export function normalizeSeedanceResolution(value: string) {

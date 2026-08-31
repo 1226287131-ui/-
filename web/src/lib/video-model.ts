@@ -182,7 +182,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
-    if (["video-v3", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
+    if (["video-v3", "wan-3.0", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;
     return GENERIC_PROFILE;
