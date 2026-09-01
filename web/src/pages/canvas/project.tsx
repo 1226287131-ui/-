@@ -1644,6 +1644,56 @@ function InfiniteCanvasPage() {
         [message, t],
     );
 
+    const createImageNodeFromExisting = useCallback(
+        (sourceNode: CanvasNodeData) => {
+            if (sourceNode.type !== CanvasNodeType.Image) return;
+
+            const currentNodes = nodesRef.current;
+            const currentConnections = connectionsRef.current;
+            const currentSourceNode = currentNodes.find((node) => node.id === sourceNode.id) || sourceNode;
+            const sourceMetadata = currentSourceNode.metadata;
+            const sourceReferences = buildNodeMentionReferences(currentSourceNode, currentNodes, currentConnections);
+            const sourcePrompt = (sourceMetadata?.inputPrompt || sourceMetadata?.composerContent || sourceMetadata?.prompt || "").trim();
+            const newNode = createCanvasNode(
+                CanvasNodeType.Image,
+                {
+                    x: currentSourceNode.position.x + currentSourceNode.width + 96 + NODE_DEFAULT_SIZE[CanvasNodeType.Image].width / 2,
+                    y: currentSourceNode.position.y + currentSourceNode.height / 2,
+                },
+                {
+                    status: NODE_STATUS_IDLE,
+                    prompt: sourcePrompt,
+                    inputPrompt: sourcePrompt,
+                    count: sourceMetadata?.count || 1,
+                    ...(sourceMetadata?.model ? { model: sourceMetadata.model } : {}),
+                    ...(sourceMetadata?.size ? { size: sourceMetadata.size } : {}),
+                    ...(sourceMetadata?.quality ? { quality: sourceMetadata.quality } : {}),
+                    ...(sourceMetadata?.background ? { background: sourceMetadata.background } : {}),
+                },
+            );
+            const nextNodes = [...currentNodes, newNode];
+            const resourceNodeIds = sourceReferences
+                .map((reference) => reference.nodeId)
+                .filter((nodeId, index, ids) => nodeId !== sourceNode.id && ids.indexOf(nodeId) === index);
+            const nextConnections = resourceNodeIds.flatMap((nodeId) => {
+                const connection = normalizeConnection(nodeId, newNode.id, nextNodes, "source");
+                return connection ? [{ id: nanoid(), ...connection }] : [];
+            });
+
+            nodesRef.current = nextNodes;
+            connectionsRef.current = [...currentConnections, ...nextConnections];
+            setNodes(nextNodes);
+            setConnections(connectionsRef.current);
+            setSelectedNodeIds(new Set([newNode.id]));
+            setSelectedConnectionId(null);
+            setDialogNodeId(newNode.id);
+            setToolbarNodeId(null);
+            setContextMenu(null);
+            message.success(t("canvas.projectPage.imageNodeCreated"));
+        },
+        [message, t],
+    );
+
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
     }, []);
@@ -2894,6 +2944,7 @@ function InfiniteCanvasPage() {
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
                     onStop={confirmStopGeneration}
+                    onCreateImageNode={createImageNodeFromExisting}
                     onCreateVideoNode={createVideoNodeFromExisting}
                     modeOverride={getNodeDefinition(panelNode.type)?.useBuiltinPanel?.mode}
                     onImageSettingsOpenChange={(open) => {
@@ -2902,7 +2953,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, createVideoNodeFromExisting, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, createImageNodeFromExisting, createVideoNodeFromExisting, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(

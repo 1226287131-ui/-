@@ -26,13 +26,14 @@ type CanvasNodePromptPanelProps = {
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onStop: (nodeId: string) => void;
+    onCreateImageNode?: (node: CanvasNodeData) => void;
     onCreateVideoNode?: (node: CanvasNodeData) => void;
     mentionReferences?: CanvasResourceReference[];
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // Plugin nodes set their generation type through useBuiltinPanel.mode.
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, onCreateVideoNode, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, onCreateImageNode, onCreateVideoNode, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const { t } = useTranslation();
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -125,6 +126,18 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
+                    {mode === "image" && onCreateImageNode ? (
+                        <Tooltip title={t("canvas.promptPanel.copyImageNode")}>
+                            <Button
+                                type="text"
+                                className="!h-10 !w-10 !min-w-10 !rounded-full !p-0"
+                                style={{ color: theme.node.text }}
+                                icon={<CopyPlus className="size-4" />}
+                                onClick={() => onCreateImageNode(node)}
+                                aria-label={t("canvas.promptPanel.copyImageNode")}
+                            />
+                        </Tooltip>
+                    ) : null}
                     {mode === "video" && onCreateVideoNode ? (
                         <Tooltip title={t("canvas.promptPanel.copyVideoNode")}>
                             <Button
