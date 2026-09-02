@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, isMiniMaxH3ResolutionSize, MINIMAX_H3_ASPECT_RATIOS, getVideoModelProfile, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { getMiniMaxH3AspectRatioForSize, getMiniMaxH3SizeOptionsForRatio, isMiniMaxH3ResolutionSize, MINIMAX_H3_ASPECT_RATIOS, getVideoModelProfile, isVideoV2ModelKind, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoRatioForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
@@ -246,11 +246,13 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
     const { t } = useTranslation();
     const profile = getVideoModelProfile(model);
     const seconds = normalizeVideoSecondsForModel(model, config.videoSeconds);
+    const inputSeconds = config.videoSeconds || seconds;
     const ratio = normalizeVideoRatioForModel(model, config.size);
     const quality = normalizeVideoQualityForReferences(model, config.vquality, referenceImageCount);
     const isGrok = profile.kind === "grok";
     const isV2Full = profile.kind === "video-v2-full";
     const isV3 = profile.kind === "video-v3";
+    const isCustomDuration = isVideoV2ModelKind(profile.kind) || isV3;
     const qualityOptions = isGrok && referenceImageCount > 1 ? profile.qualityOptions.filter((item) => item !== "1080p") : profile.qualityOptions;
 
     return (
@@ -279,14 +281,18 @@ function RemoteVideoSettingsPanel({ config, model, onConfigChange, theme, showTi
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
-                    <div className={`grid gap-2.5 ${profile.seconds.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>
-                        {profile.seconds.map((value) => (
-                            <OptionPill key={value} selected={seconds === String(value)} disabled={isV2Full} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {value}s
-                            </OptionPill>
-                        ))}
-                    </div>
-                    {isGrok ? <NumberInput value={seconds} min={1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} /> : null}
+                    {isCustomDuration ? (
+                        <NumberInput value={inputSeconds} min={profile.secondsMin!} max={profile.secondsMax!} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                    ) : (
+                        <div className={`grid gap-2.5 ${profile.seconds.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>
+                            {profile.seconds.map((value) => (
+                                <OptionPill key={value} selected={seconds === String(value)} disabled={isV2Full} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                    {value}s
+                                </OptionPill>
+                            ))}
+                        </div>
+                    )}
+                    {isGrok ? <NumberInput value={inputSeconds} min={1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} /> : null}
                 </SettingGroup>
                 {isV3 ? (
                     <SettingGroup title={t("settingsPanels.video.output")} color={theme.node.muted}>

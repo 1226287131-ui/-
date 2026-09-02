@@ -3,6 +3,8 @@ export type VideoModelKind = "video-v1" | "video-v2" | "video-v2-fast" | "video-
 export type VideoModelProfile = {
     kind: VideoModelKind;
     seconds: readonly number[];
+    secondsMin?: number;
+    secondsMax?: number;
     ratios: readonly string[];
     maxImages: number;
     maxVideos: number;
@@ -35,6 +37,8 @@ const VIDEO_V1_PROFILE: VideoModelProfile = {
 const VIDEO_V2_PROFILE: VideoModelProfile = {
     kind: "video-v2",
     seconds: Array.from({ length: 11 }, (_, index) => index + 5),
+    secondsMin: 5,
+    secondsMax: 15,
     ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     maxImages: 9,
     maxVideos: 3,
@@ -63,6 +67,8 @@ const VIDEO_V2_FULL_PROFILE: VideoModelProfile = {
 const VIDEO_V3_PROFILE: VideoModelProfile = {
     kind: "video-v3",
     seconds: Array.from({ length: 27 }, (_, index) => index + 4),
+    secondsMin: 4,
+    secondsMax: 30,
     ratios: ["16:9", "1:1", "9:16"],
     defaultRatio: "16:9",
     maxImages: 30,
@@ -196,9 +202,12 @@ export function normalizeVideoSecondsForModel(model: string, value: string | num
     const profile = getVideoModelProfile(model);
     const requested = Number(value);
     if (profile.kind === "grok" && Number.isFinite(requested)) return String(Math.min(15, Math.max(1, Math.floor(requested))));
+    if (Number.isFinite(requested) && profile.secondsMin !== undefined && profile.secondsMax !== undefined) {
+        return String(Math.min(profile.secondsMax, Math.max(profile.secondsMin, Math.floor(requested))));
+    }
     if (Number.isFinite(requested) && profile.seconds.includes(Math.floor(requested))) return String(Math.floor(requested));
     if (profile.kind === "grok") return "5";
-    const fallback = profile.seconds[0] || 6;
+    const fallback = profile.secondsMin ?? profile.seconds[0] ?? 6;
     return String(fallback);
 }
 
