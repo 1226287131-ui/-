@@ -180,10 +180,36 @@ const GENERIC_PROFILE: VideoModelProfile = {
     qualityOptions: [],
 };
 
-export function getVideoModelProfile(model: string): VideoModelProfile {
+const CUSTOM_VIDEO_MODEL_NAMES = [
+    "video-v1",
+    "video-v2",
+    "video-v2-fast",
+    "video-v2-满血兜底版",
+    "video-v3",
+    "wan-3.0",
+    "seedance-2.5",
+    "seedance2.5",
+    "sd-2.5",
+    "sd2.5",
+    "minimax-h3",
+    "minimax-h3-933-1440p-gf",
+] as const;
+
+/** Removes provider display suffixes while keeping the submitted model name unchanged. */
+export function normalizeVideoModelName(model: string) {
     const raw = model.trim().toLowerCase();
     const separator = raw.lastIndexOf("::");
     const value = separator >= 0 ? raw.slice(separator + 2) : raw;
+    return value.replace(/(?:（限时低价渠道）|\(限时低价渠道\))$/, "").trim();
+}
+
+export function isCustomVideoModelName(model: string) {
+    const value = normalizeVideoModelName(model);
+    return (CUSTOM_VIDEO_MODEL_NAMES as readonly string[]).includes(value) || (value.includes("grok-imagine") && value.includes("video"));
+}
+
+export function getVideoModelProfile(model: string): VideoModelProfile {
+    const value = normalizeVideoModelName(model);
     if (value.includes("video-v1")) return VIDEO_V1_PROFILE;
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
