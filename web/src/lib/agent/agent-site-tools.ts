@@ -196,7 +196,7 @@ function getVideoConfig() {
     const sizeOptions = constrained ? (profile.kind === "minimax-h3" ? (profile.sizes || []).map((value) => ({ value, label: value })) : profile.ratios.map((value) => ({ value, label: ratioLabels[value] || value }))) : videoSizeOptions;
     const resolutionOptions =
         profile.kind === "video-v1" || profile.kind === "video-v2-full" || profile.kind === "video-v3"
-            ? [{ value: "720p", label: "720p" }]
+            ? [{ value: profile.fixedQuality || "720p", label: profile.fixedQuality || "720p" }]
             : isVideoV2ModelKind(profile.kind) || profile.kind === "grok"
               ? profile.qualityOptions.map((value) => ({ value, label: value }))
               : profile.kind === "minimax-h3"

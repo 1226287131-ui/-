@@ -14,6 +14,7 @@ export type VideoModelProfile = {
     audioMaxBytes: number;
     resolution: "fixed" | "selectable" | "quality";
     qualityOptions: readonly string[];
+    fixedQuality?: string;
     /** Fixed pixel sizes used by models whose API does not accept aspect ratios. */
     sizes?: readonly string[];
     defaultSize?: string;
@@ -79,6 +80,12 @@ const VIDEO_V3_PROFILE: VideoModelProfile = {
     audioMaxBytes: Number.POSITIVE_INFINITY,
     resolution: "selectable",
     qualityOptions: ["480p", "720p"],
+};
+
+const VIDEO_V3_480P_PROFILE: VideoModelProfile = {
+    ...VIDEO_V3_PROFILE,
+    qualityOptions: ["480p"],
+    fixedQuality: "480p",
 };
 
 const GROK_PROFILE: VideoModelProfile = {
@@ -186,6 +193,7 @@ const CUSTOM_VIDEO_MODEL_NAMES = [
     "video-v2-fast",
     "video-v2-满血兜底版",
     "video-v3",
+    "video-v3-480p",
     "wan-3.0",
     "seedance-2.5",
     "seedance2.5",
@@ -214,6 +222,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
+    if (value === "video-v3-480p") return VIDEO_V3_480P_PROFILE;
     if (["video-v3", "wan-3.0", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;
@@ -284,6 +293,7 @@ export function normalizeVideoSizeForModel(model: string, value: string) {
 
 export function normalizeVideoQualityForModel(model: string, value: string) {
     const profile = getVideoModelProfile(model);
+    if (profile.fixedQuality) return profile.fixedQuality;
     if (profile.kind === "video-v1") return "720p";
     if (profile.kind === "video-v2-full") return "720p";
     if (profile.kind === "video-v3") {
