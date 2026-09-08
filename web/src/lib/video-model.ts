@@ -88,6 +88,13 @@ const VIDEO_V3_480P_PROFILE: VideoModelProfile = {
     fixedQuality: "480p",
 };
 
+const VIDEO_V3_SPECIAL_PRICE_PROFILE: VideoModelProfile = {
+    ...VIDEO_V3_PROFILE,
+    maxImages: 9,
+    maxVideos: 0,
+    maxAudios: 0,
+};
+
 const GROK_PROFILE: VideoModelProfile = {
     kind: "grok",
     seconds: Array.from({ length: 15 }, (_, index) => index + 1),
@@ -194,6 +201,7 @@ const CUSTOM_VIDEO_MODEL_NAMES = [
     "video-v2-满血兜底版",
     "video-v3",
     "video-v3-480p",
+    "video-v3-特价版",
     "wan-3.0",
     "seedance-2.5",
     "seedance2.5",
@@ -223,6 +231,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (value === "video-v3-480p") return VIDEO_V3_480P_PROFILE;
+    if (value === "video-v3-特价版") return VIDEO_V3_SPECIAL_PRICE_PROFILE;
     if (["video-v3", "wan-3.0", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;
