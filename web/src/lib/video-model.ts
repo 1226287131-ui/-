@@ -109,6 +109,13 @@ const GROK_PROFILE: VideoModelProfile = {
     qualityOptions: ["480p", "720p", "1080p"],
 };
 
+const VIDEO_V2_SPECIAL_PRICE_PROFILE: VideoModelProfile = {
+    ...VIDEO_V2_PROFILE,
+    maxImages: 9,
+    maxVideos: 0,
+    maxAudios: 0,
+};
+
 const VIDEO_V2_FAST_PROFILE: VideoModelProfile = {
     ...VIDEO_V2_PROFILE,
     kind: "video-v2-fast",
@@ -199,6 +206,7 @@ const CUSTOM_VIDEO_MODEL_NAMES = [
     "video-v2",
     "video-v2-fast",
     "video-v2-满血兜底版",
+    "video-v2-特价版",
     "video-v3",
     "video-v3-480p",
     "video-v3-特价版",
@@ -229,6 +237,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value.includes("video-v1")) return VIDEO_V1_PROFILE;
     if (value === "video-v2-满血兜底版") return VIDEO_V2_FULL_PROFILE;
     if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
+    if (value === "video-v2-特价版") return VIDEO_V2_SPECIAL_PRICE_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (value === "video-v3-480p") return VIDEO_V3_480P_PROFILE;
     if (value === "video-v3-特价版") return VIDEO_V3_SPECIAL_PRICE_PROFILE;

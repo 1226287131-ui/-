@@ -234,6 +234,10 @@ async function createVideoV1Task(config: AiConfig, model: string, prompt: string
 }
 
 async function createVideoV2Task(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const profile = getVideoModelProfile(modelOptionName(model));
+    if (references.length > profile.maxImages) throw new Error(`video-v2 最多支持 ${profile.maxImages} 张参考图`);
+    if (videoReferences.length > profile.maxVideos) throw new Error(profile.maxVideos ? `video-v2 最多支持 ${profile.maxVideos} 个参考视频` : "当前模型不支持参考视频");
+    if (audioReferences.length > profile.maxAudios) throw new Error(profile.maxAudios ? `video-v2 最多支持 ${profile.maxAudios} 个参考音频` : "当前模型不支持参考音频");
     const media = await resolveReferenceMediaUrls(references, videoReferences, audioReferences);
     const payload = {
         model: modelOptionName(model),
