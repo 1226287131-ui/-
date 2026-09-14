@@ -70,7 +70,7 @@ const VIDEO_V3_PROFILE: VideoModelProfile = {
     seconds: Array.from({ length: 27 }, (_, index) => index + 4),
     secondsMin: 4,
     secondsMax: 30,
-    ratios: ["16:9", "1:1", "9:16"],
+    ratios: ["16:9", "1:1", "9:16", "21:9"],
     defaultRatio: "16:9",
     maxImages: 30,
     maxVideos: 10,
