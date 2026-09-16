@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
-import { VideoSettingsPanel, videoAspectRatioLabel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
+import { VideoSettingsPanel, videoAspectRatioLabel, videoModeLabel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { getMiniMaxH3AspectRatioForSize, isMiniMaxH3ResolutionSize, getVideoModelProfile, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForReferences, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { modelOptionName } from "@/stores/use-config-store";
@@ -63,11 +63,13 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
     return (
         <>
             <span ref={buttonRef} className="inline-flex min-w-0">
-                <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
+                <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[220px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
                         {isMiniMaxH3
                             ? `${videoAspectRatioLabel(miniMaxH3Ratio)} · ${videoSecondsLabel(seconds)} · ${count} 条`
-                            : isVideoV3
+                            : profile.kind === "generic"
+                              ? `${videoResolutionLabel(config.vquality)} · ${videoSizeLabel(config.size)} · ${videoSecondsLabel(config.videoSeconds)} · ${videoModeLabel(config.videoMode)} · ${count} 条`
+                              : isVideoV3
                               ? `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`
                               : `${videoResolutionLabel(quality)} · ${videoSizeLabel(size)} · ${videoSecondsLabel(seconds)} · ${count} 条`}
                     </span>

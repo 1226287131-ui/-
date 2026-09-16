@@ -30,11 +30,18 @@ export type CanvasNodeImage = {
     status: CanvasNodeStatus;
     errorDetails?: string;
     content: string;
-    storageKey: string;
+    storageKey?: string;
     naturalWidth: number;
     naturalHeight: number;
     bytes: number;
     mimeType: string;
+};
+
+export type CanvasNodeText = {
+    id: string;
+    status: CanvasNodeStatus;
+    errorDetails?: string;
+    content: string;
 };
 
 export type CanvasNodeMetadata = {
@@ -53,6 +60,9 @@ export type CanvasNodeMetadata = {
     quality?: string;
     background?: string;
     count?: number;
+    textCount?: number;
+    texts?: CanvasNodeText[];
+    primaryTextId?: string;
     seconds?: string;
     vquality?: string;
     videoWorkflow?: string;
@@ -60,6 +70,7 @@ export type CanvasNodeMetadata = {
     videoAspectRatio?: string;
     generateAudio?: string;
     watermark?: string;
+    videoMode?: string;
     audioVoice?: string;
     audioFormat?: string;
     audioSpeed?: string;
@@ -74,6 +85,8 @@ export type CanvasNodeMetadata = {
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
+    videoTaskId?: string;
+    videoTaskProvider?: "openai" | "gemini" | "seedance" | "video-v1" | "video-v2" | "video-v2-full" | "video-v3" | "video-v3-qy" | "grok" | "minimax-h3";
     groupId?: string;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
 };

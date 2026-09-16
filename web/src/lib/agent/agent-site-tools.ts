@@ -3,10 +3,11 @@ import type { NavigateFunction } from "react-router-dom";
 import i18n from "@/i18n";
 import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
-import { imageAspectOptions, imageQualityOptions } from "@/components/image-settings-panel";
-import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/components/video-settings-panel";
-import { getVideoModelProfile, isVideoV2ModelKind, MINIMAX_H3_ASPECT_RATIOS, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
+import { imageAspectOptions, imageQualityOptions, imageScaleOptions } from "@/components/image-settings-panel";
+import { videoResolutionOptions, videoSecondOptions, videoSecondsRange, videoSizeOptions } from "@/components/video-settings-panel";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { clampVideoSeconds } from "@/lib/media-size";
+import { getVideoModelProfile, isVideoV2ModelKind, MINIMAX_H3_ASPECT_RATIOS, normalizeMiniMaxH3AspectRatio, normalizeVideoQualityForModel, normalizeVideoSecondsForModel, normalizeVideoSizeForModel } from "@/lib/video-model";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
@@ -153,6 +154,7 @@ function getImageConfig() {
         current: { model, modelName: modelOptionName(model), quality: config.quality || "auto", size: config.size || "1:1", count: config.count || "1" },
         models: selectableModelsByCapability(config, "image").map((value) => ({ value, label: modelOptionLabel(config, value) })),
         qualityOptions: imageQualityOptions,
+        scaleOptions: imageScaleOptions,
         sizeOptions: imageAspectOptions,
         countRange: { min: 1, max: 15 },
     };
@@ -212,12 +214,17 @@ function getVideoConfig() {
             aspectRatio: profile.kind === "minimax-h3" ? normalizeMiniMaxH3AspectRatio(config.videoAspectRatio) : undefined,
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
+            mode: config.videoMode === "reference" ? "reference" : "frames",
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
         sizeOptions,
-        secondsOptions: constrained ? profile.seconds.map(String) : videoSecondOptions,
         resolutionOptions,
+        ...(constrained ? { secondsOptions: profile.seconds.length ? profile.seconds.map(String) : videoSecondOptions } : { secondsRange: videoSecondsRange }),
         ...(profile.kind === "minimax-h3" ? { aspectRatioOptions: MINIMAX_H3_ASPECT_RATIOS.map((value) => ({ value, label: value })) } : {}),
+        ...(!constrained ? { modeOptions: [
+            { value: "frames", label: i18n.t("settingsPanels.video.modes.frames") },
+            { value: "reference", label: i18n.t("settingsPanels.video.modes.reference") },
+        ] } : {}),
     };
 }
 
@@ -238,10 +245,10 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
         configStore.updateConfig("size", value);
         applied.size = value;
     }
-    if (typeof input.seconds === "string" && input.seconds.trim()) {
-        const value = constrained ? normalizeVideoSecondsForModel(modelName, input.seconds) : input.seconds;
-        configStore.updateConfig("videoSeconds", value);
-        applied.seconds = value;
+    if (input.seconds != null && String(input.seconds).trim()) {
+        const seconds = constrained ? normalizeVideoSecondsForModel(modelName, String(input.seconds)) : clampVideoSeconds(String(input.seconds));
+        configStore.updateConfig("videoSeconds", seconds);
+        applied.seconds = seconds;
     }
     if (typeof input.resolution === "string" && input.resolution.trim()) {
         const value = constrained ? normalizeVideoQualityForModel(modelName, input.resolution) : input.resolution;
@@ -263,6 +270,10 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     if (typeof input.watermark === "boolean") {
         configStore.updateConfig("videoWatermark", String(input.watermark));
         applied.watermark = input.watermark;
+    }
+    if (input.mode === "frames" || input.mode === "reference") {
+        configStore.updateConfig("videoMode", input.mode);
+        applied.mode = input.mode;
     }
     const prompt = typeof input.prompt === "string" ? input.prompt : undefined;
     const run = input.run !== false;

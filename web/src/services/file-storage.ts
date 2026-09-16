@@ -1,6 +1,8 @@
 import localforage from "localforage";
 import { nanoid } from "nanoid";
 
+import { withLocalProxy } from "@/stores/use-config-store";
+
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 export type UploadMediaOptions = { deferPersistence?: boolean; deferMetadata?: boolean };
 
@@ -11,7 +13,7 @@ const MEDIA_METADATA_TIMEOUT_MS = 15_000;
 const MEDIA_STORAGE_TIMEOUT_MS = 30_000;
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file", options?: UploadMediaOptions): Promise<UploadedFile> {
-    const blob = typeof input === "string" ? await (await fetchWithTimeout(input)).blob() : input;
+    const blob = typeof input === "string" ? await (await fetchWithTimeout(withLocalProxy(input))).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
     const url = URL.createObjectURL(blob);
     let persisted = false;
