@@ -112,8 +112,8 @@ const GROK_PROFILE: VideoModelProfile = {
 const VIDEO_V2_SPECIAL_PRICE_PROFILE: VideoModelProfile = {
     ...VIDEO_V2_PROFILE,
     maxImages: 9,
-    maxVideos: 0,
-    maxAudios: 0,
+    maxVideos: 3,
+    maxAudios: 3,
 };
 
 const VIDEO_V2_FAST_PROFILE: VideoModelProfile = {
