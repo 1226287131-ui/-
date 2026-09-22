@@ -381,7 +381,7 @@ async function createVideoV3Task(config: AiConfig, model: string, prompt: string
         prompt: prompt.trim(),
         duration,
         ratio: normalizeVideoRatioForModel(modelName, config.size),
-        resolution: "720p",
+        resolution: normalizeVideoQualityForModel(modelName, config.vquality),
         generate_audio: boolConfig(config.videoGenerateAudio, true),
     };
     if (images.length) payload.images = images;
