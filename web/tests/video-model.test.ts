@@ -5,6 +5,7 @@ import { getVideoModelProfile, isCustomVideoModelName, normalizeVideoQualityForM
 for (const [model, quality, otherQuality] of [
     ["video-v2-720P（按秒计费）", "720p", "480p"],
     ["video-v2-480P（按秒计费）", "480p", "720p"],
+    ["video-v2-480P（按条计费）", "480p", "720p"],
 ]) {
     test(`${model} uses V2 limits and fixed resolution`, () => {
         const profile = getVideoModelProfile(model);

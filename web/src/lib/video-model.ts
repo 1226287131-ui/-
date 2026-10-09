@@ -237,6 +237,7 @@ const CUSTOM_VIDEO_MODEL_NAMES = [
     "video-v2-特价版",
     "video-v2-720p（按秒计费）",
     "video-v2-480p（按秒计费）",
+    "video-v2-480p（按条计费）",
     "video-v3",
     "video-v3-480p",
     "video-v3-720p（按条计费）",
@@ -271,7 +272,7 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value === "video-v2-fast") return VIDEO_V2_FAST_PROFILE;
     if (value === "video-v2-特价版") return VIDEO_V2_SPECIAL_PRICE_PROFILE;
     if (value === "video-v2-720p（按秒计费）") return VIDEO_V2_720P_PER_SECOND_PROFILE;
-    if (value === "video-v2-480p（按秒计费）") return VIDEO_V2_480P_PER_SECOND_PROFILE;
+    if (value === "video-v2-480p（按秒计费）" || value === "video-v2-480p（按条计费）") return VIDEO_V2_480P_PER_SECOND_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (value === "video-v3-480p") return VIDEO_V3_480P_PROFILE;
     if (value === "video-v3-720p（按条计费）") return VIDEO_V3_720P_PER_ITEM_PROFILE;
