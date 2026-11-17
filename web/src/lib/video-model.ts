@@ -102,6 +102,12 @@ const VIDEO_V3_480P_PER_ITEM_PROFILE: VideoModelProfile = {
     fixedQuality: "480p",
 };
 
+const MUSE_PROFILE: VideoModelProfile = {
+    ...VIDEO_V3_720P_PER_ITEM_PROFILE,
+    seconds: Array.from({ length: 47 }, (_, index) => index + 4),
+    secondsMax: 50,
+};
+
 const GROK_PROFILE: VideoModelProfile = {
     kind: "grok",
     seconds: Array.from({ length: 15 }, (_, index) => index + 1),
@@ -236,6 +242,9 @@ const CUSTOM_VIDEO_MODEL_NAMES = [
     "video-v3-720p（按条计费）",
     "video-v3-480p（按条计费）",
     "video-v3-特价版",
+    "muse（按秒计费）",
+    "video-v3-flash-480p",
+    "video-v3-flash-720p",
     "wan-3.0",
     "seedance-2.5",
     "seedance2.5",
@@ -268,8 +277,9 @@ export function getVideoModelProfile(model: string): VideoModelProfile {
     if (value === "video-v2-480p（按秒计费）" || value === "video-v2-480p（按条计费）") return VIDEO_V2_480P_PER_SECOND_PROFILE;
     if (value.includes("video-v2")) return VIDEO_V2_PROFILE;
     if (value === "video-v3-480p") return VIDEO_V3_480P_PROFILE;
-    if (value === "video-v3-720p（按条计费）") return VIDEO_V3_720P_PER_ITEM_PROFILE;
-    if (value === "video-v3-480p（按条计费）") return VIDEO_V3_480P_PER_ITEM_PROFILE;
+    if (value === "video-v3-720p（按条计费）" || value === "video-v3-flash-720p") return VIDEO_V3_720P_PER_ITEM_PROFILE;
+    if (value === "video-v3-480p（按条计费）" || value === "video-v3-flash-480p") return VIDEO_V3_480P_PER_ITEM_PROFILE;
+    if (value === "muse（按秒计费）") return MUSE_PROFILE;
     if (["video-v3", "video-v3-特价版", "wan-3.0", "seedance-2.5", "seedance2.5", "sd-2.5", "sd2.5"].includes(value)) return VIDEO_V3_PROFILE;
     if (value.includes("grok-imagine") && value.includes("video")) return GROK_PROFILE;
     if (value.includes("minimax-h3")) return MINIMAX_H3_PROFILE;

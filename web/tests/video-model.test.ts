@@ -33,3 +33,33 @@ test("video-v3-特价版 uses V3 reference limits and request settings", () => {
         expect(normalizeVideoQualityForModel(model, "720p")).toBe("720p");
     }
 });
+
+test("muse uses V3 settings with 720p and up to 50 seconds", () => {
+    const model = "muse（按秒计费）";
+    const profile = getVideoModelProfile(model);
+    expect(isCustomVideoModelName(model)).toBe(true);
+    expect(profile.kind).toBe("video-v3");
+    expect([profile.secondsMin, profile.secondsMax]).toEqual([4, 50]);
+    expect([profile.maxImages, profile.maxVideos, profile.maxAudios]).toEqual([30, 10, 10]);
+    expect(profile.resolution).toBe("fixed");
+    expect(profile.qualityOptions).toEqual(["720p"]);
+    expect(normalizeVideoQualityForModel(model, "480p")).toBe("720p");
+    expect(normalizeVideoQualityForModel(`channel::${model}`, "1080p")).toBe("720p");
+    expect([3, 4, 29, 30, 49, 50, 51].map((seconds) => normalizeVideoSecondsForModel(model, seconds))).toEqual(["4", "4", "29", "30", "49", "50", "50"]);
+});
+
+test("video-v3 flash models use V3 settings with their fixed resolution", () => {
+    for (const [model, quality] of [["video-v3-flash-480p", "480p"], ["video-v3-flash-720p", "720p"]] as const) {
+        const profile = getVideoModelProfile(model);
+        expect(isCustomVideoModelName(model)).toBe(true);
+        expect(isCustomVideoModelName(`channel::${model}`)).toBe(true);
+        expect(profile.kind).toBe("video-v3");
+        expect([profile.maxImages, profile.maxVideos, profile.maxAudios]).toEqual([30, 10, 10]);
+        expect([profile.secondsMin, profile.secondsMax]).toEqual([4, 30]);
+        expect(profile.resolution).toBe("fixed");
+        expect(profile.qualityOptions).toEqual([quality]);
+        expect(normalizeVideoQualityForModel(model, quality === "480p" ? "720p" : "480p")).toBe(quality);
+        expect(normalizeVideoQualityForModel(`channel::${model}`, "1080p")).toBe(quality);
+        expect(normalizeVideoSecondsForModel(model, 30)).toBe("30");
+    }
+});
